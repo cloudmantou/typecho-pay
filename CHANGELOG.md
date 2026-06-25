@@ -2,6 +2,18 @@
 
 ## Unreleased
 
+## 0.2.0 - 2026-06-25
+
+- Enhanced plugin config UI with grouped sections: Basic, PayPay, WeChat Pay, Alipay
+- Added detailed descriptions and help text for all configuration fields
+- Added direct links to payment platform dashboards (PayPay, WeChat, Alipay)
+- Created settings-help.php admin panel with callback URLs display
+- Added comprehensive setup guides for each payment gateway
+- Added shortcode usage documentation and FAQ section
+- Updated README with new admin menu structure and setup instructions
+
+## 0.1.0 - 2026-06-25
+
 - Fixed PayPay Dynamic QR active query path to `/v2/codes/payments/{merchantPaymentId}`.
 - Added active order query for PayPay, WeChat Pay, and Alipay.
 - Changed `/action/typechopay?do=query` to query the upstream gateway while orders are pending.
