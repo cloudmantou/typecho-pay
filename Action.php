@@ -44,6 +44,11 @@ class Action extends BaseOptions implements ActionInterface
                 return;
             }
 
+            if ($do === 'grant') {
+                $this->grant();
+                return;
+            }
+
             $this->json(['success' => false, 'error' => 'Unknown action.'], 404);
         } catch (\InvalidArgumentException $e) {
             $this->json(['success' => false, 'error' => $e->getMessage()], 400);
@@ -72,6 +77,7 @@ class Action extends BaseOptions implements ActionInterface
             'subject' => (string) $this->request->get('subject'),
             'biz_type' => (string) $this->request->get('biz_type'),
             'biz_id' => (string) $this->request->get('biz_id'),
+            'return_to' => (string) $this->request->get('return_to'),
             'ts' => (string) $this->request->get('ts'),
             'nonce' => (string) $this->request->get('nonce'),
         ];
@@ -82,6 +88,7 @@ class Action extends BaseOptions implements ActionInterface
         }
         (new NonceService(Db::get()))->consume('create', $payload['nonce']);
 
+        $payload['return_to'] = $this->safeReturnTo($payload['return_to']);
         $this->assertGatewayCurrency($gateway, $payload['currency']);
 
         $orderService = new OrderService(Db::get());
@@ -154,17 +161,7 @@ class Action extends BaseOptions implements ActionInterface
 
         if (in_array($order['status'], ['pending', 'processing'], true)) {
             try {
-                $result = GatewayFactory::make($order['gateway'], $config, $this->options)->query($order);
-                $orderService->recordEvent($result->outTradeNo, $order['gateway'], 'active_query:' . $result->status, $result->signatureOk, $result->raw, [
-                    'provider_event_id' => $result->providerEventId,
-                    'provider_event_type' => $result->providerEventType,
-                    'platform_trade_no' => $result->platformTradeNo,
-                    'remote_ip' => $_SERVER['REMOTE_ADDR'] ?? null,
-                ]);
-
-                if ($result->isPaid()) {
-                    $order = $orderService->markPaid($result);
-                }
+                $order = $this->activeQuery($orderService, $order, $config, false);
             } catch (\Throwable $e) {
                 error_log('[TypechoPay] Active query failed: ' . $e->getMessage());
             }
@@ -175,13 +172,48 @@ class Action extends BaseOptions implements ActionInterface
 
     private function paymentReturn(): void
     {
-        $outTradeNo = htmlspecialchars((string) $this->request->get('out_trade_no'));
+        $outTradeNo = (string) $this->request->get('out_trade_no');
+        $config = Plugin::pluginConfig($this->options);
+        $orderService = new OrderService(Db::get());
+        $order = $orderService->findByOutTradeNo($outTradeNo);
+        if ($order && in_array($order['status'], ['pending', 'processing'], true)) {
+            try {
+                $order = $this->activeQuery($orderService, $order, $config, true);
+            } catch (\Throwable $e) {
+                error_log('[TypechoPay] Return active query failed: ' . $e->getMessage());
+            }
+        }
+
+        $returnTo = $this->safeReturnTo((string) ($order['return_to'] ?? $this->request->get('return_to')));
+        if ($order && $order['status'] === 'paid') {
+            $this->response->redirect($returnTo);
+            return;
+        }
+
+        $safeOutTradeNo = htmlspecialchars($outTradeNo);
+        $safeReturnTo = htmlspecialchars($returnTo);
+        $status = htmlspecialchars((string) ($order['status'] ?? 'unknown'));
         $this->response->throwContent(
             '<!doctype html><meta charset="utf-8"><title>Payment Return</title>'
-            . '<p>支付完成后订单状态会通过异步通知更新。</p>'
-            . ($outTradeNo !== '' ? '<p>订单号：' . $outTradeNo . '</p>' : ''),
+            . '<p>订单状态：' . $status . '</p>'
+            . ($safeOutTradeNo !== '' ? '<p>订单号：' . $safeOutTradeNo . '</p>' : '')
+            . '<p><a href="' . $safeReturnTo . '">返回查看内容</a></p>',
             'text/html'
         );
+    }
+
+    private function grant(): void
+    {
+        $this->user->pass('administrator');
+        $this->security->protect();
+        if (!$this->request->isPost()) {
+            throw new \InvalidArgumentException('Grant must be retried by POST.');
+        }
+
+        $outTradeNo = (string) $this->request->get('out_trade_no');
+        (new OrderService(Db::get()))->regrant($outTradeNo);
+
+        $this->response->redirect($this->request->getReferer() ?: (string) $this->options->adminUrl);
     }
 
     private function renderPayment(array $order, $result): void
@@ -197,6 +229,7 @@ class Action extends BaseOptions implements ActionInterface
         }
 
         $pollUrl = Common::url('/action/typechopay?do=query&out_trade_no=' . rawurlencode($order['out_trade_no']), $this->options->index);
+        $returnTo = $this->safeReturnTo((string) ($order['return_to'] ?? ''));
         $payUrl = $result->payUrl;
         $qrContent = $result->qrContent ?: $payUrl;
         $html = '<!doctype html><html><head><meta charset="utf-8"><title>支付订单</title>'
@@ -217,7 +250,8 @@ class Action extends BaseOptions implements ActionInterface
                 . '<script>(function(){var box=document.getElementById("typechopay-qrcode");'
                 . 'if(window.QRCode&&box){QRCode.toCanvas(box,box.getAttribute("data-text"),{width:240,margin:1});}'
                 . 'var status=document.getElementById("typechopay-status");'
-                . 'setInterval(function(){fetch(' . json_encode($pollUrl) . ',{credentials:"same-origin"}).then(function(r){return r.json();}).then(function(j){if(j&&j.data){status.textContent="订单状态："+j.data.status;if(j.data.status==="paid"){location.reload();}}}).catch(function(){});},3000);'
+                . 'var returnTo=' . json_encode($returnTo) . ';'
+                . 'setInterval(function(){fetch(' . json_encode($pollUrl) . ',{credentials:"same-origin"}).then(function(r){return r.json();}).then(function(j){if(j&&j.data){status.textContent="订单状态："+j.data.status;if(j.data.status==="paid"){location.href=returnTo;}else if(j.data.status==="grant_failed"){status.textContent="支付成功，权益发放失败，请联系站点管理员。";}}}).catch(function(){});},3000);'
                 . '}());</script>';
         } elseif ($payUrl) {
             $html .= '<p><a href="' . htmlspecialchars($payUrl) . '" rel="nofollow">打开支付链接</a></p>';
@@ -260,6 +294,53 @@ class Action extends BaseOptions implements ActionInterface
         if ($currency !== $expected) {
             throw new \InvalidArgumentException('Currency does not match payment gateway.');
         }
+    }
+
+    private function activeQuery(OrderService $orderService, array $order, array $config, bool $force): array
+    {
+        if (!$orderService->shouldQueryUpstream($order, $force)) {
+            return $order;
+        }
+
+        $order = $orderService->markQueryAttempt($order);
+        $result = GatewayFactory::make($order['gateway'], $config, $this->options)->query($order);
+        $orderService->recordEvent($result->outTradeNo, $order['gateway'], 'active_query:' . $result->status, $result->signatureOk, $result->raw, [
+            'provider_event_id' => $result->providerEventId,
+            'provider_event_type' => $result->providerEventType,
+            'platform_trade_no' => $result->platformTradeNo,
+            'remote_ip' => $_SERVER['REMOTE_ADDR'] ?? null,
+        ]);
+
+        if ($result->isPaid()) {
+            return $orderService->markPaid($result);
+        }
+
+        return $orderService->findByOutTradeNo($order['out_trade_no']) ?: $order;
+    }
+
+    private function safeReturnTo(string $returnTo): string
+    {
+        $fallback = (string) $this->options->index;
+        $returnTo = trim($returnTo);
+        if ($returnTo === '' || preg_match('/[\r\n]/', $returnTo)) {
+            return $fallback;
+        }
+
+        if (strpos($returnTo, '/') === 0 && strpos($returnTo, '//') !== 0) {
+            return Common::url($returnTo, $this->options->index);
+        }
+
+        $target = parse_url($returnTo);
+        $site = parse_url((string) $this->options->index);
+        if (!$target || !$site || empty($target['scheme']) || empty($target['host']) || empty($site['host'])) {
+            return $fallback;
+        }
+
+        if (!in_array(strtolower($target['scheme']), ['http', 'https'], true)) {
+            return $fallback;
+        }
+
+        return strtolower($target['host']) === strtolower($site['host']) ? $returnTo : $fallback;
     }
 
     private function assertFreshPayload(array $payload): void

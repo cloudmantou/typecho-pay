@@ -193,12 +193,18 @@ class Plugin implements PluginInterface
                 return '<p class="typechopay-error">' . htmlspecialchars(_t('没有可用支付方式')) . '</p>';
             }
 
+            [$bizType, $bizId] = self::resolveAccessTarget($attrs, $archive);
+            if (self::currentVisitorCanAccess($bizType, $bizId)) {
+                return '<div class="typechopay-owned">' . htmlspecialchars(_t('已购买')) . '</div>';
+            }
+
             $payload = [
                 'amount' => (string) $amount,
                 'currency' => $currency,
                 'subject' => $subject,
-                'biz_type' => $attrs['biz_type'] ?? 'post',
-                'biz_id' => (string) ($attrs['biz_id'] ?? ($archive->cid ?? 0)),
+                'biz_type' => $bizType,
+                'biz_id' => (string) $bizId,
+                'return_to' => self::archiveReturnTo($archive, $options),
             ];
 
             return self::renderPayBox($payload, $gateways, $options, $config);
@@ -287,19 +293,43 @@ class Plugin implements PluginInterface
             return $content;
         }
 
-        $bizId = (int) ($archive->cid ?? 0);
-        $user = User::alloc();
-        $userId = $user->hasLogin() ? (int) $user->uid : null;
-        $guestTokenHash = GuestToken::hash(GuestToken::get());
-        $canAccess = (new AccessService(Db::get()))->canAccess('post', $bizId, $userId, $guestTokenHash);
-
-        return preg_replace_callback('/\[typechopay_content\](.*?)\[\/typechopay_content\]/is', function ($matches) use ($canAccess) {
-            if ($canAccess) {
-                return $matches[1];
+        return preg_replace_callback('/\[typechopay_content(?:\s+([^\]]+))?\](.*?)\[\/typechopay_content\]/is', function ($matches) use ($archive) {
+            $attrs = self::parseShortcodeAttrs($matches[1] ?? '');
+            [$bizType, $bizId] = self::resolveAccessTarget($attrs, $archive);
+            if (self::currentVisitorCanAccess($bizType, $bizId)) {
+                return $matches[2];
             }
 
             return '<div class="typechopay-locked">' . htmlspecialchars(_t('此内容需要购买后查看。')) . '</div>';
         }, $content);
+    }
+
+    private static function resolveAccessTarget(array $attrs, $archive): array
+    {
+        if (!empty($attrs['product']) && strpos($attrs['product'], ':') !== false) {
+            [$type, $id] = explode(':', (string) $attrs['product'], 2);
+            return [trim($type) ?: 'post', (int) $id];
+        }
+
+        return [
+            trim((string) ($attrs['biz_type'] ?? 'post')) ?: 'post',
+            (int) ($attrs['biz_id'] ?? ($archive->cid ?? 0)),
+        ];
+    }
+
+    private static function currentVisitorCanAccess(string $bizType, int $bizId): bool
+    {
+        $user = User::alloc();
+        $userId = $user->hasLogin() ? (int) $user->uid : null;
+        $guestTokenHash = GuestToken::hash(GuestToken::get());
+
+        return (new AccessService(Db::get()))->canAccess($bizType, $bizId, $userId, $guestTokenHash);
+    }
+
+    private static function archiveReturnTo($archive, Options $options): string
+    {
+        $permalink = $archive->permalink ?? '';
+        return is_string($permalink) && $permalink !== '' ? $permalink : (string) $options->index;
     }
 
     private static function parseShortcodeAttrs(string $raw): array
@@ -376,6 +406,9 @@ class Plugin implements PluginInterface
                 `platform_trade_no` VARCHAR(128) DEFAULT NULL,
                 `pay_url` TEXT DEFAULT NULL,
                 `qr_content` TEXT DEFAULT NULL,
+                `return_to` TEXT DEFAULT NULL,
+                `last_queried_at` DATETIME DEFAULT NULL,
+                `query_count` INT NOT NULL DEFAULT 0,
                 `paid_at` DATETIME DEFAULT NULL,
                 `expired_at` DATETIME DEFAULT NULL,
                 `created_at` DATETIME NOT NULL,
@@ -453,6 +486,9 @@ class Plugin implements PluginInterface
                 platform_trade_no TEXT DEFAULT NULL,
                 pay_url TEXT DEFAULT NULL,
                 qr_content TEXT DEFAULT NULL,
+                return_to TEXT DEFAULT NULL,
+                last_queried_at TEXT DEFAULT NULL,
+                query_count INTEGER NOT NULL DEFAULT 0,
                 paid_at TEXT DEFAULT NULL,
                 expired_at TEXT DEFAULT NULL,
                 created_at TEXT NOT NULL,
@@ -523,6 +559,9 @@ class Plugin implements PluginInterface
                 platform_trade_no VARCHAR(128) DEFAULT NULL,
                 pay_url TEXT DEFAULT NULL,
                 qr_content TEXT DEFAULT NULL,
+                return_to TEXT DEFAULT NULL,
+                last_queried_at TIMESTAMP DEFAULT NULL,
+                query_count INTEGER NOT NULL DEFAULT 0,
                 paid_at TIMESTAMP DEFAULT NULL,
                 expired_at TIMESTAMP DEFAULT NULL,
                 created_at TIMESTAMP NOT NULL,
@@ -574,13 +613,24 @@ class Plugin implements PluginInterface
     {
         $isMysql = strpos($adapter, 'mysql') !== false || strpos($adapter, 'mysqli') !== false;
         $isPgsql = strpos($adapter, 'pgsql') !== false;
-        $table = $isMysql ? '`' . $prefix . 'pay_events`' : '"' . $prefix . 'pay_events"';
+        $ordersTable = $isMysql ? '`' . $prefix . 'pay_orders`' : '"' . $prefix . 'pay_orders"';
+        $eventsTable = $isMysql ? '`' . $prefix . 'pay_events`' : '"' . $prefix . 'pay_events"';
         $index = $isMysql ? $prefix . 'pay_events_uniq_provider_event' : '"' . $prefix . 'pay_events_uniq_provider_event"';
         $textType = $isMysql ? 'MEDIUMTEXT' : 'TEXT';
         $string128 = $isMysql || $isPgsql ? 'VARCHAR(128)' : 'TEXT';
         $string64 = $isMysql || $isPgsql ? 'VARCHAR(64)' : 'TEXT';
+        $dateType = $isMysql ? 'DATETIME' : ($isPgsql ? 'TIMESTAMP' : 'TEXT');
 
-        $columns = [
+        $orderColumns = [
+            "return_to {$textType} DEFAULT NULL",
+            "last_queried_at {$dateType} DEFAULT NULL",
+            "query_count INTEGER NOT NULL DEFAULT 0",
+        ];
+        foreach ($orderColumns as $column) {
+            self::trySchema($db, "ALTER TABLE {$ordersTable} ADD COLUMN {$column}");
+        }
+
+        $eventColumns = [
             "provider_event_id {$string128} DEFAULT NULL",
             "provider_event_type {$string64} DEFAULT NULL",
             "platform_trade_no {$string128} DEFAULT NULL",
@@ -588,14 +638,14 @@ class Plugin implements PluginInterface
             "headers_json {$textType} DEFAULT NULL",
         ];
 
-        foreach ($columns as $column) {
-            self::trySchema($db, "ALTER TABLE {$table} ADD COLUMN {$column}");
+        foreach ($eventColumns as $column) {
+            self::trySchema($db, "ALTER TABLE {$eventsTable} ADD COLUMN {$column}");
         }
 
         if ($isMysql) {
-            self::trySchema($db, "ALTER TABLE {$table} ADD UNIQUE KEY `{$index}` (gateway, provider_event_id)");
+            self::trySchema($db, "ALTER TABLE {$eventsTable} ADD UNIQUE KEY `{$index}` (gateway, provider_event_id)");
         } else {
-            self::trySchema($db, "CREATE UNIQUE INDEX {$index} ON {$table} (gateway, provider_event_id)");
+            self::trySchema($db, "CREATE UNIQUE INDEX {$index} ON {$eventsTable} (gateway, provider_event_id)");
         }
     }
 

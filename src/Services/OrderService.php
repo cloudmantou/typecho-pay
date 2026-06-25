@@ -14,6 +14,8 @@ if (!defined('__TYPECHO_ROOT_DIR__')) {
 final class OrderService
 {
     private const PAYABLE_STATUSES = ['pending', 'processing'];
+    private const GRANTABLE_STATUSES = ['paid_pending_grant', 'grant_failed'];
+    private const ACTIVE_QUERY_INTERVAL = 8;
 
     private Db $db;
 
@@ -26,7 +28,7 @@ final class OrderService
     {
         $existing = $this->findReusablePending($input, $userId, $guestTokenHash);
         if ($existing) {
-            return $existing + ['reused' => true];
+            return $this->refreshReusableOrder($existing, (string) ($input['return_to'] ?? '')) + ['reused' => true];
         }
 
         return $this->createFresh($input, $userId, $guestTokenHash) + ['reused' => false];
@@ -57,6 +59,9 @@ final class OrderService
             'platform_trade_no' => null,
             'pay_url' => null,
             'qr_content' => null,
+            'return_to' => isset($input['return_to']) ? (string) $input['return_to'] : null,
+            'last_queried_at' => null,
+            'query_count' => 0,
             'paid_at' => null,
             'expired_at' => date('Y-m-d H:i:s', time() + 1800),
             'created_at' => $now,
@@ -65,6 +70,22 @@ final class OrderService
 
         $id = $this->db->query($this->db->insert('table.pay_orders')->rows($order));
         $order['id'] = $id;
+
+        return $order;
+    }
+
+    private function refreshReusableOrder(array $order, string $returnTo): array
+    {
+        if ($returnTo === '' || (string) ($order['return_to'] ?? '') === $returnTo) {
+            return $order;
+        }
+
+        $this->db->query($this->db->update('table.pay_orders')->rows([
+            'return_to' => $returnTo,
+            'updated_at' => date('Y-m-d H:i:s'),
+        ])->where('out_trade_no = ?', $order['out_trade_no']));
+
+        $order['return_to'] = $returnTo;
 
         return $order;
     }
@@ -141,22 +162,79 @@ final class OrderService
             return $order;
         }
 
+        if (in_array($order['status'], self::GRANTABLE_STATUSES, true)) {
+            return $this->grantPaidOrder($order);
+        }
+
         if (!in_array($order['status'], self::PAYABLE_STATUSES, true)) {
             throw new \RuntimeException('Order status is not payable.');
         }
 
+        $paidAt = date('Y-m-d H:i:s');
         $updated = $this->db->query($this->db->update('table.pay_orders')->rows([
-            'status' => 'paid',
+            'status' => 'paid_pending_grant',
             'platform_trade_no' => $result->platformTradeNo,
-            'paid_at' => date('Y-m-d H:i:s'),
-            'updated_at' => date('Y-m-d H:i:s'),
+            'paid_at' => $paidAt,
+            'updated_at' => $paidAt,
         ])->where('out_trade_no = ?', $result->outTradeNo)
             ->where('status IN ?', self::PAYABLE_STATUSES));
 
-        $paidOrder = $updated > 0 ? ($this->findByOutTradeNo($result->outTradeNo) ?: $order) : $order;
-        if ($updated > 0) {
-            (new AccessService($this->db))->grant($paidOrder);
+        if ($updated <= 0) {
+            return $this->findByOutTradeNo($result->outTradeNo) ?: $order;
         }
+
+        $pendingOrder = array_merge($order, [
+            'status' => 'paid_pending_grant',
+            'platform_trade_no' => $result->platformTradeNo,
+            'paid_at' => $paidAt,
+            'updated_at' => $paidAt,
+        ]);
+
+        return $this->grantPaidOrder($pendingOrder);
+    }
+
+    public function regrant(string $outTradeNo): array
+    {
+        $order = $this->findByOutTradeNo($outTradeNo);
+        if (!$order) {
+            throw new \RuntimeException('Order not found.');
+        }
+
+        if (!in_array($order['status'], ['paid', 'paid_pending_grant', 'grant_failed'], true)) {
+            throw new \RuntimeException('Order is not paid.');
+        }
+
+        return $this->grantPaidOrder($order);
+    }
+
+    private function grantPaidOrder(array $order): array
+    {
+        try {
+            (new AccessService($this->db))->grant($order);
+        } catch (\Throwable $e) {
+            $this->db->query($this->db->update('table.pay_orders')->rows([
+                'status' => 'grant_failed',
+                'updated_at' => date('Y-m-d H:i:s'),
+            ])->where('out_trade_no = ?', $order['out_trade_no'])
+                ->where('status IN ?', array_merge(['paid'], self::GRANTABLE_STATUSES)));
+
+            $this->recordEvent($order['out_trade_no'], 'system', 'grant_failed', false, [
+                'error' => $e->getMessage(),
+            ]);
+
+            throw new \RuntimeException('Payment was confirmed but entitlement grant failed.');
+        }
+
+        $this->db->query($this->db->update('table.pay_orders')->rows([
+            'status' => 'paid',
+            'updated_at' => date('Y-m-d H:i:s'),
+        ])->where('out_trade_no = ?', $order['out_trade_no'])
+            ->where('status IN ?', array_merge(['paid'], self::GRANTABLE_STATUSES)));
+
+        $paidOrder = $this->findByOutTradeNo($order['out_trade_no']) ?: array_merge($order, ['status' => 'paid']);
+        $this->recordEvent($order['out_trade_no'], 'system', 'grant_succeeded', true, [
+            'order_id' => (int) $order['id'],
+        ]);
 
         return $paidOrder;
     }
@@ -203,6 +281,36 @@ final class OrderService
         }
     }
 
+    public function shouldQueryUpstream(array $order, bool $force = false): bool
+    {
+        if ($force) {
+            return true;
+        }
+
+        if (!empty($order['last_queried_at'])) {
+            return strtotime((string) $order['last_queried_at']) <= time() - self::ACTIVE_QUERY_INTERVAL;
+        }
+
+        return true;
+    }
+
+    public function markQueryAttempt(array $order): array
+    {
+        $now = date('Y-m-d H:i:s');
+        $count = (int) ($order['query_count'] ?? 0) + 1;
+
+        $this->db->query($this->db->update('table.pay_orders')->rows([
+            'last_queried_at' => $now,
+            'query_count' => $count,
+            'updated_at' => $now,
+        ])->where('out_trade_no = ?', $order['out_trade_no']));
+
+        $order['last_queried_at'] = $now;
+        $order['query_count'] = $count;
+
+        return $order;
+    }
+
     public function publicOrderStatus(?array $order): array
     {
         if (!$order) {
@@ -218,6 +326,7 @@ final class OrderService
                 'amount' => (int) $order['amount'],
                 'currency' => $order['currency'],
                 'paid_at' => $order['paid_at'],
+                'return_to' => $order['return_to'] ?? null,
             ],
         ];
     }

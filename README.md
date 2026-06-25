@@ -8,7 +8,7 @@ TypechoPay 是一个 Typecho 支付插件骨架，按“订单中心 + 多支付
 - `/action/typechopay` 统一创建、通知、查询、返回入口
 - PayPay Dynamic QR 直接 HMAC 客户端
 - 微信支付 Native、支付宝 Page/Precreate 的 SDK 接入层和主动查单
-- 后台订单列表
+- 后台订单列表和权益重发入口
 - 文章短代码支付入口和金额防篡改签名
 - 最小付费阅读隐藏内容块
 
@@ -30,12 +30,20 @@ TypechoPay 是一个 Typecho 支付插件骨架，按“订单中心 + 多支付
 [typechopay amount="500" currency="JPY" subject="AppFlex 30日权限" gateways="paypay"]
 ```
 
-`amount` 使用最小货币单位：JPY 为日元整数，CNY 为分。短代码渲染时会为每个支付按钮生成包含 `gateway`、`ts`、`nonce` 的 HMAC 签名，创建订单时服务端会重新验签、要求 10 分钟内有效，并一次性消费 nonce，防止用户修改隐藏字段篡改金额或重复提交同一入口。
+`amount` 使用最小货币单位：JPY 为日元整数，CNY 为分。短代码渲染时会为每个支付按钮生成包含 `gateway`、`return_to`、`ts`、`nonce` 的 HMAC 签名，创建订单时服务端会重新验签、要求 10 分钟内有效，并一次性消费 nonce，防止用户修改隐藏字段篡改金额或重复提交同一入口。已购买当前 `biz_type` / `biz_id` 的访问者会看到“已购买”，不再显示付款按钮。
 
 付费阅读内容可以这样包裹：
 
 ```text
 [typechopay_content]
+这里是购买后展示的内容。
+[/typechopay_content]
+```
+
+也可以显式绑定业务对象：
+
+```text
+[typechopay_content biz_type="post" biz_id="123"]
 这里是购买后展示的内容。
 [/typechopay_content]
 ```
@@ -50,6 +58,7 @@ PayPay：
 - 主动查单使用 Dynamic QR 的 `/v2/codes/payments/{merchantPaymentId}`。
 - Webhook 会校验 `Authorization: hmac OPA-Auth:...`，并要求时间偏移不超过 120 秒。
 - 只在 `state=COMPLETED` 且签名有效时标记订单已支付。
+- 通知和主动查单都会先检查 PayPay 商户配置是否完整。
 
 微信支付：
 
@@ -92,8 +101,10 @@ PayPay：
 - 不在代码里写任何商户密钥。
 - 付款入口签名覆盖金额、币种、业务对象和支付网关，并通过 `pay_nonces` 做一次性消费。
 - 支付状态只由验签通过的异步通知或可信主动查询更新。
-- 每次通知或主动查单都会写入 `pay_events`，便于审计；事件表保留 provider event id/type、平台交易号、IP、请求头和 payload。
-- 订单更新是状态机控制的：只有 `pending` / `processing` 可以进入 `paid`。
+- 前端可以 3 秒轮询本地订单状态，服务端会把远程主动查单节流到约 8 秒一次。
+- 每次通知或实际主动查单都会写入 `pay_events`，便于审计；事件表保留 provider event id/type、平台交易号、IP、请求头和 payload。
+- 订单更新是状态机控制的：只有 `pending` / `processing` 可以进入 `paid_pending_grant`；权益发放成功后才进入 `paid`，失败会进入 `grant_failed`，后台可重发权益。
+- 支付成功页不会重载创建订单的 POST 页面，而是跳回签名保护的 `return_to`。
 - 当前插件只实现最小付费阅读权益，不负责卡密库存/自动交付；如果要做卡密交付，应单独设计库存、锁定、发货和售后审计表。
 
 ## 验证

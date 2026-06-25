@@ -20,6 +20,14 @@ final class AccessService
     public function grant(array $order): void
     {
         if (empty($order['id']) || empty($order['biz_type']) || empty($order['biz_id'])) {
+            throw new \RuntimeException('Invalid entitlement target.');
+        }
+
+        if (empty($order['user_id']) && empty($order['guest_token_hash'])) {
+            throw new \RuntimeException('Missing entitlement owner.');
+        }
+
+        if ($this->hasOrderGrant((int) $order['id'])) {
             return;
         }
 
@@ -36,8 +44,23 @@ final class AccessService
                 'created_at' => $now,
             ]));
         } catch (\Throwable $e) {
-            error_log('[TypechoPay] Failed to grant entitlement: ' . $e->getMessage());
+            if ($this->hasOrderGrant((int) $order['id'])) {
+                return;
+            }
+
+            throw $e;
         }
+    }
+
+    public function hasOrderGrant(int $orderId): bool
+    {
+        if ($orderId <= 0) {
+            return false;
+        }
+
+        return (bool) $this->db->fetchRow(
+            $this->db->select('id')->from('table.pay_entitlements')->where('order_id = ?', $orderId)->limit(1)
+        );
     }
 
     public function canAccess(string $bizType, int $bizId, ?int $userId, ?string $guestTokenHash): bool
@@ -46,11 +69,12 @@ final class AccessService
             return false;
         }
 
+        $now = date('Y-m-d H:i:s');
         $select = $this->db->select('id')->from('table.pay_entitlements')
             ->where('biz_type = ?', $bizType)
             ->where('biz_id = ?', $bizId)
-            ->where('starts_at <= ?', date('Y-m-d H:i:s'))
-            ->where('expires_at IS NULL OR expires_at > ?', date('Y-m-d H:i:s'))
+            ->where('starts_at <= ?', $now)
+            ->where('(expires_at IS NULL OR expires_at > ?)', $now)
             ->limit(1);
 
         if ($userId !== null) {

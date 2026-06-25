@@ -44,6 +44,7 @@ final class PayPayGateway extends AbstractGateway implements GatewayInterface
 
     public function notify(array $headers, string $rawBody, array $query, array $post): NotifyResult
     {
+        $this->requireConfig(['paypayApiKey', 'paypayApiSecret', 'paypayMerchantId']);
         $signatureOk = $this->verifyIncomingHmac($headers, $rawBody);
         $data = json_decode($rawBody, true);
         if (!is_array($data)) {
@@ -81,6 +82,7 @@ final class PayPayGateway extends AbstractGateway implements GatewayInterface
 
     public function query(array $order): NotifyResult
     {
+        $this->requireConfig(['paypayApiKey', 'paypayApiSecret', 'paypayMerchantId']);
         $response = $this->request('GET', '/v2/codes/payments/' . rawurlencode($order['out_trade_no']));
         $event = $response['data'] ?? [];
         $state = strtoupper((string) ($event['state'] ?? ($event['status'] ?? '')));

@@ -13,6 +13,7 @@ $payload = [
     'biz_type' => 'post',
     'biz_id' => '100',
     'gateway' => 'paypay',
+    'return_to' => 'https://example.com/post/100.html',
     'ts' => '1780000000',
     'nonce' => '1234567890abcdef',
 ];

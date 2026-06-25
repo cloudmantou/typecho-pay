@@ -8,7 +8,11 @@
 - Added QR payment page rendering with polling.
 - Added signed payment payload expiry, gateway coverage, and one-time nonce consumption.
 - Added `pay_entitlements` and minimal paid-reading access grants.
-- Hardened paid state transitions to only allow payable statuses into `paid`.
+- Fixed entitlement access SQL grouping and hid purchase buttons for already-owned content.
+- Added signed `return_to` handling so paid QR pages redirect back instead of reloading POST.
+- Added `paid_pending_grant` / `grant_failed` recovery states and admin entitlement regrant action.
+- Added server-side throttling for active gateway queries.
+- Hardened paid state transitions so orders enter `paid` only after entitlement grant succeeds.
 - Added provider event metadata fields for payment event auditing.
 
 ## 0.1.0 - 2026-06-25

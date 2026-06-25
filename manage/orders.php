@@ -34,13 +34,14 @@ $orders = $db->fetchAll($select);
         <div class="typecho-table-wrap">
             <table class="typecho-list-table">
                 <colgroup>
-                    <col width="18%">
-                    <col width="12%">
-                    <col width="22%">
+                    <col width="17%">
+                    <col width="10%">
+                    <col width="20%">
                     <col width="10%">
                     <col width="10%">
-                    <col width="14%">
-                    <col width="14%">
+                    <col width="13%">
+                    <col width="13%">
+                    <col width="7%">
                 </colgroup>
                 <thead>
                 <tr>
@@ -51,12 +52,13 @@ $orders = $db->fetchAll($select);
                     <th><?php _e('状态'); ?></th>
                     <th><?php _e('创建时间'); ?></th>
                     <th><?php _e('支付时间'); ?></th>
+                    <th><?php _e('操作'); ?></th>
                 </tr>
                 </thead>
                 <tbody>
                 <?php if (!$orders): ?>
                     <tr>
-                        <td colspan="7"><h6 class="typecho-list-table-title"><?php _e('暂无订单'); ?></h6></td>
+                        <td colspan="8"><h6 class="typecho-list-table-title"><?php _e('暂无订单'); ?></h6></td>
                     </tr>
                 <?php endif; ?>
                 <?php foreach ($orders as $order): ?>
@@ -68,6 +70,14 @@ $orders = $db->fetchAll($select);
                         <td><?php echo htmlspecialchars($order['status']); ?></td>
                         <td><?php echo htmlspecialchars($order['created_at']); ?></td>
                         <td><?php echo htmlspecialchars((string) $order['paid_at']); ?></td>
+                        <td>
+                            <?php if (in_array($order['status'], ['paid', 'paid_pending_grant', 'grant_failed'], true)): ?>
+                                <form method="post" action="<?php echo htmlspecialchars($security->getIndex('/action/typechopay?do=grant')); ?>">
+                                    <input type="hidden" name="out_trade_no" value="<?php echo htmlspecialchars($order['out_trade_no']); ?>">
+                                    <button class="btn btn-xs" type="submit"><?php _e('重发权益'); ?></button>
+                                </form>
+                            <?php endif; ?>
+                        </td>
                     </tr>
                 <?php endforeach; ?>
                 </tbody>
