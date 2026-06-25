@@ -1,0 +1,20 @@
+{
+  "name": "mantou/typecho-pay",
+  "description": "Typecho order center and payment gateway adapter for PayPay, WeChat Pay, and Alipay.",
+  "type": "typecho-plugin",
+  "license": "GPL-2.0-or-later",
+  "require": {
+    "php": ">=7.4",
+    "ext-json": "*",
+    "ext-openssl": "*"
+  },
+  "suggest": {
+    "wechatpay/wechatpay": "Required for WeChat Pay Native order creation.",
+    "paypayopa/php-sdk": "Optional. This plugin includes a direct PayPay Dynamic QR client, but the SDK can be used for future expansion."
+  },
+  "autoload": {
+    "psr-4": {
+      "TypechoPlugin\\TypechoPay\\": ["", "src/"]
+    }
+  }
+}
