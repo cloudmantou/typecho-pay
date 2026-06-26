@@ -143,6 +143,10 @@ class Action extends BaseOptions implements ActionInterface
         ]);
 
         $userId = $this->user->hasLogin() ? (int) $this->user->uid : null;
+        if ($userId === null && (int) ($product['allow_guest'] ?? 1) !== 1) {
+            throw new \InvalidArgumentException('Please log in before purchasing this product.');
+        }
+
         $guestToken = $userId === null ? GuestToken::getOrCreate() : GuestToken::get();
         $guestTokenHash = GuestToken::hash($guestToken);
         if ($userId !== null) {

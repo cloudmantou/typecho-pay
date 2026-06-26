@@ -45,6 +45,8 @@ tp_assert(strpos($ppsSource, 'max_per_user') !== false, 'Uses max_per_user');
 // ---- Test 4: Action uses PurchasePolicyService ----
 $actionSource = file_get_contents($root . '/Action.php');
 tp_assert(strpos($actionSource, 'PurchasePolicyService') !== false, 'Action uses PurchasePolicyService');
+tp_assert(strpos($actionSource, "'allow_guest'") !== false, 'Action checks allow_guest');
+tp_assert(strpos($actionSource, 'Please log in before purchasing this product') !== false, 'Action rejects guest purchase when disabled');
 
 $createFromPayload = '';
 if (preg_match('/private function createFromPayload.*?^    \}/ms', $actionSource, $m)) {
@@ -66,6 +68,8 @@ tp_assert(
     strpos($productServiceSource, 'Product has no enabled deliverables') !== false,
     'Rejects stored products without deliverables'
 );
+tp_assert(strpos($productServiceSource, "'max_per_user' => \$maxPerUser") !== false, 'ProductService exposes max_per_user');
+tp_assert(strpos($productServiceSource, "'allow_guest' => \$allowGuest") !== false, 'ProductService exposes allow_guest');
 tp_assert(
     strpos($productServiceSource, 'invalid deliverable handler') !== false || strpos($productServiceSource, 'allowedHandlers') !== false,
     'Validates deliverable handler types'
@@ -96,6 +100,11 @@ tp_assert(strpos($cardServiceSource, '4096') !== false, 'Max code length 4096');
 $productsSource = file_get_contents($root . '/manage/products.php');
 tp_assert(strpos($productsSource, '商品不存在') !== false, 'Admin validates product exists');
 tp_assert(strpos($productsSource, '未启用卡密交付') !== false, 'Admin validates cardcode handler');
+tp_assert(strpos($productsSource, 'name="allow_guest"') !== false, 'Admin exposes allow_guest field');
+tp_assert(strpos($productsSource, '$oldMaxPerUser') !== false, 'Product edit version bump checks max_per_user');
+tp_assert(strpos($productsSource, '$oldStatus') !== false, 'Product edit version bump checks status');
+tp_assert(strpos($productsSource, '$oldStockPolicy') !== false, 'Product edit version bump checks stock policy');
+tp_assert(strpos($productsSource, '$oldAllowGuest') !== false, 'Product edit version bump checks allow_guest');
 
 // ---- Test 11: Product creation is transactional ----
 tp_assert(substr_count($productsSource, 'START TRANSACTION') >= 1, 'Product creation is transactional');

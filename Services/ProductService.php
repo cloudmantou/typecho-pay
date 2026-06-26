@@ -63,6 +63,10 @@ final class ProductService
         $currency = Money::assertCurrency($product['currency'] ?? ($defaults['currency'] ?? 'CNY'));
         $title = trim((string) ($product['title'] ?? 'TypechoPay Product'));
         $policy = $this->assertPurchasePolicy((string) ($product['purchase_policy'] ?? 'once'));
+        $maxPerUser = isset($product['max_per_user']) && (int) $product['max_per_user'] > 0
+            ? (int) $product['max_per_user']
+            : null;
+        $allowGuest = (int) ($product['allow_guest'] ?? 1) === 1 ? 1 : 0;
         $deliverables = $this->findDeliverables((int) $product['id']);
 
         // Stored products must have at least one enabled deliverable.
@@ -99,6 +103,8 @@ final class ProductService
             'biz_type' => $bizType,
             'biz_id' => $bizId,
             'purchase_policy' => $policy,
+            'max_per_user' => $maxPerUser,
+            'allow_guest' => $allowGuest,
             'snapshot' => [
                 'id' => (int) $product['id'],
                 'product_key' => (string) ($product['product_key'] ?? ''),
@@ -106,6 +112,8 @@ final class ProductService
                 'amount' => $amount,
                 'currency' => $currency,
                 'purchase_policy' => $policy,
+                'max_per_user' => $maxPerUser,
+                'allow_guest' => $allowGuest,
                 'version' => (int) ($product['version'] ?? 1),
                 'deliverables' => $deliverables,
             ],
@@ -141,6 +149,8 @@ final class ProductService
             'biz_type' => $bizType,
             'biz_id' => $bizId,
             'purchase_policy' => $policy,
+            'max_per_user' => null,
+            'allow_guest' => 1,
             'snapshot' => [
                 'mode' => 'legacy_inline',
                 'subject' => $subject,
@@ -149,6 +159,8 @@ final class ProductService
                 'biz_type' => $bizType,
                 'biz_id' => $bizId,
                 'purchase_policy' => $policy,
+                'max_per_user' => null,
+                'allow_guest' => 1,
             ],
         ];
         $snapshot['product_snapshot_json'] = json_encode($snapshot['snapshot'], JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);

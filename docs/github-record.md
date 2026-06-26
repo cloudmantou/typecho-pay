@@ -2,6 +2,38 @@
 
 Date: 2026-06-25
 
+## 2026-06-26 Article Product Frontend Loop (v0.4.0)
+
+### Change
+
+Moved the frontend card-code purchase flow closer to the article-as-product model: a Typecho article remains the product detail page, while TypechoPay owns price, purchase policy, stock reservation, and card delivery.
+
+### Scope
+
+- Added a plugin setting for article product auto-injection: off, top, bottom, or after the first paragraph.
+- Added `Plugin::autoInjectProductPanel()` so a bound active product can render automatically on its article when no TypechoPay shortcode is present.
+- Added `[typechopay_product]` support without a `product` attribute, resolving the active product bound to the current article cid.
+- Added default `typechopay-product-panel` markup and CSS with stock, sold count, sold-out, owned, login-required, and payment-unavailable states.
+- Added `product-panel.php` theme override support under `usr/themes/{theme}/typechopay/`.
+- Enforced `allow_guest = 0` in `Action::createFromPayload()` before creating guest tokens or orders.
+- Added `allow_guest` and `max_per_user` to resolved stored-product data and order snapshots.
+- Defaulted newly created card-code products to login-required purchase unless the admin explicitly enables guest purchase.
+- Expanded product edit version bumps to include status, max_per_user, allow_guest, content_id, stock policy, and deliverable changes.
+
+### Boundary
+
+This change does not inject product badges into arbitrary theme article-list cards. Themes can use shortcodes or override templates first; a theme-specific list-card hook should be added only after the target theme integration is known.
+
+### Verification
+
+Run after pulling this change:
+
+```sh
+composer validate --no-check-lock --strict
+find . -path './vendor' -prune -o -name '*.php' -print0 | xargs -0 -n1 php -l
+for test in tests/*Test.php; do php "$test"; done
+```
+
 ## 2026-06-26 Admin Panels and Card Management (v0.3.2)
 
 ### Change

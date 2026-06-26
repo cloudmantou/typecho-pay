@@ -52,7 +52,7 @@ spl_autoload_register(function ($class) {
  *
  * @package TypechoPay
  * @author mantou
- * @version 0.3.2
+ * @version 0.4.0
  * @link https://github.com/
  */
 class Plugin implements PluginInterface
@@ -144,6 +144,20 @@ class Plugin implements PluginInterface
         );
         $form->addInput($endpointSecret);
 
+        $productAutoInjectPosition = new Select(
+            'productAutoInjectPosition',
+            [
+                'off' => '不自动插入',
+                'top' => '正文顶部',
+                'bottom' => '正文底部',
+                'after_first_paragraph' => '第一段之后',
+            ],
+            'off',
+            _t('文章商品卡自动插入位置'),
+            _t('当文章 cid 绑定了上架商品，且正文没有手写 TypechoPay 短代码时，自动显示商品购买模块。为避免影响主题排版，默认关闭。')
+        );
+        $form->addInput($productAutoInjectPosition);
+
         // ============================================================
         // PayPay 配置
         // ============================================================
@@ -217,8 +231,13 @@ class Plugin implements PluginInterface
      */
     public static function renderPayShortcodes($content, $archive)
     {
-        if (!is_string($content) || strpos($content, '[typechopay') === false) {
+        if (!is_string($content)) {
             return $content;
+        }
+
+        $hasTypechoPayShortcode = self::containsTypechoPayShortcode($content);
+        if (!$hasTypechoPayShortcode) {
+            return self::autoInjectProductPanel($content, $archive);
         }
 
         $content = self::renderProtectedContent($content, $archive);
@@ -230,9 +249,9 @@ class Plugin implements PluginInterface
         }, $content);
 
         // Render [typechopay_product ...] — single product card.
-        $content = preg_replace_callback('/\[typechopay_product\s+([^\]]+)\]/i', function ($matches) {
-            $attrs = self::parseShortcodeAttrs($matches[1]);
-            return self::renderProductCardShortcode($attrs);
+        $content = preg_replace_callback('/\[typechopay_product(?:\s+([^\]]*))?\]/i', function ($matches) use ($archive) {
+            $attrs = self::parseShortcodeAttrs($matches[1] ?? '');
+            return self::renderProductCardShortcode($attrs, $archive);
         }, $content);
 
         return preg_replace_callback('/\[typechopay\s+([^\]]+)\]/i', function ($matches) use ($archive) {
@@ -290,6 +309,9 @@ class Plugin implements PluginInterface
             'enabledGateways' => self::normalizeGateways($plugin->enabledGateways ?? ['paypay']),
             'defaultCurrency' => strtoupper((string) ($plugin->defaultCurrency ?? 'JPY')),
             'endpointSecret' => (string) ($plugin->endpointSecret ?? ''),
+            'productAutoInjectPosition' => self::normalizeAutoInjectPosition(
+                (string) ($plugin->productAutoInjectPosition ?? 'off')
+            ),
             'paypayEnvironment' => (string) ($plugin->paypayEnvironment ?? 'sandbox'),
             'paypayApiKey' => (string) ($plugin->paypayApiKey ?? ''),
             'paypayApiSecret' => (string) ($plugin->paypayApiSecret ?? ''),
@@ -393,44 +415,160 @@ class Plugin implements PluginInterface
     /**
      * Render [typechopay_product product="key"] — single product card.
      */
-    private static function renderProductCardShortcode(array $attrs): string
+    private static function renderProductCardShortcode(array $attrs, $archive = null): string
     {
         self::enqueueShopCss();
 
         $productKey = trim((string) ($attrs['product'] ?? ''));
-        if ($productKey === '') {
-            return '<p class="typechopay-error">' . htmlspecialchars(_t('缺少 product 参数')) . '</p>';
-        }
 
         $db = Db::get();
-        $product = $db->fetchRow(
-            $db->select()->from('table.pay_products')
-                ->where('product_key = ?', $productKey)
-                ->where('status = ?', 'active')
-                ->limit(1)
-        );
-        if (!$product) {
-            return '<p class="typechopay-error">' . htmlspecialchars(_t('商品不存在或已下架')) . '</p>';
+        if ($productKey !== '') {
+            $product = $db->fetchRow(
+                $db->select()->from('table.pay_products')
+                    ->where('product_key = ?', $productKey)
+                    ->where('status = ?', 'active')
+                    ->limit(1)
+            );
+        } else {
+            $cid = self::archiveContentId($archive);
+            $product = $cid > 0 ? self::findActiveProductByContentId($cid) : null;
         }
 
-        $categories = [];
-        $allCats = $db->fetchAll($db->select()->from('table.pay_product_categories')->where('status = ?', 'active'));
-        foreach ($allCats as $c) {
-            $categories[(int) $c['id']] = $c;
+        if (!$product) {
+            return '<p class="typechopay-error">' . htmlspecialchars(_t('商品不存在、未绑定当前文章或已下架')) . '</p>';
         }
+
+        $categories = self::activeProductCategories();
+        $options = Options::alloc();
+        $config = self::pluginConfig($options);
+        $stats = self::productDisplayStats($product);
+        $state = self::productDisplayState($product, $stats, $config);
 
         // Try theme template first.
-        $templateData = ['product' => $product, 'categories' => $categories, 'attrs' => $attrs];
+        $templateData = [
+            'product' => $product,
+            'categories' => $categories,
+            'attrs' => $attrs,
+            'stats' => $stats,
+            'state' => $state,
+        ];
         $themed = self::renderThemeTemplate('product-card', $templateData);
         if ($themed !== null) {
             return $themed;
         }
 
-        $options = Options::alloc();
-        $config = self::pluginConfig($options);
         return '<div class="typechopay-shop">'
             . self::renderProductCardHtml($product, $categories, $options, $config)
             . '</div>';
+    }
+
+    private static function autoInjectProductPanel(string $content, $archive): string
+    {
+        if (!self::isSingleContentArchive($archive)) {
+            return $content;
+        }
+
+        $options = Options::alloc();
+        $config = self::pluginConfig($options);
+        $position = $config['productAutoInjectPosition'];
+        if ($position === 'off') {
+            return $content;
+        }
+
+        $cid = self::archiveContentId($archive);
+        if ($cid <= 0) {
+            return $content;
+        }
+
+        $product = self::findActiveProductByContentId($cid);
+        if (!$product) {
+            return $content;
+        }
+
+        $panel = self::renderProductPanelHtml($product, $archive, $options, $config);
+        if ($panel === '') {
+            return $content;
+        }
+
+        if ($position === 'bottom') {
+            return $content . "\n" . $panel;
+        }
+
+        if ($position === 'after_first_paragraph' && preg_match('/<\/p>/i', $content, $match, PREG_OFFSET_CAPTURE)) {
+            $offset = $match[0][1] + strlen($match[0][0]);
+            return substr($content, 0, $offset) . "\n" . $panel . substr($content, $offset);
+        }
+
+        return $panel . "\n" . $content;
+    }
+
+    private static function renderProductPanelHtml(array $product, $archive, Options $options, array $config): string
+    {
+        self::enqueueShopCss();
+
+        $categories = self::activeProductCategories();
+        $stats = self::productDisplayStats($product);
+        $state = self::productDisplayState($product, $stats, $config);
+        $returnTo = self::archiveReturnTo($archive, $options);
+
+        $templateData = [
+            'product' => $product,
+            'archive' => $archive,
+            'categories' => $categories,
+            'stats' => $stats,
+            'state' => $state,
+            'returnTo' => $returnTo,
+        ];
+        $themed = self::renderThemeTemplate('product-panel', $templateData);
+        if ($themed !== null) {
+            return $themed;
+        }
+
+        $pid = (int) $product['id'];
+        $currency = (string) ($product['currency'] ?? 'CNY');
+        $amount = (int) $product['amount'];
+        $title = (string) ($product['title'] ?? _t('自动售卡'));
+        $summary = trim((string) ($product['summary'] ?? ''));
+        if ($summary === '') {
+            $summary = _t('此内容为自动售卡，请付款后获取卡密信息。');
+        }
+
+        $coverUrl = trim((string) ($product['cover_url'] ?? ''));
+        $coverHtml = $coverUrl !== ''
+            ? '<div class="typechopay-product-panel__cover"><img src="' . htmlspecialchars($coverUrl) . '" alt="' . htmlspecialchars($title) . '"></div>'
+            : '';
+
+        $typeLabel = ((string) ($product['stock_policy'] ?? 'none') === 'reserve_on_order') ? _t('自动售卡') : _t('付费内容');
+        $stockHtml = $stats['stock_text'] !== ''
+            ? '<span class="typechopay-product-panel__stock">' . htmlspecialchars($stats['stock_text']) . '</span>'
+            : '';
+        $soldHtml = $stats['sold'] > 0
+            ? '<span class="typechopay-product-panel__sold">' . htmlspecialchars(_t('已售 %d', $stats['sold'])) . '</span>'
+            : '';
+
+        $actions = self::renderProductActionArea(
+            $product,
+            $options,
+            $config,
+            $returnTo,
+            'typechopay-product-panel__buy',
+            $state
+        );
+
+        return '<section class="typechopay-product-panel typechopay-status--' . htmlspecialchars($state['status']) . '" data-product-id="' . $pid . '">'
+            . $coverHtml
+            . '<div class="typechopay-product-panel__main">'
+            . '<div class="typechopay-product-panel__label">' . htmlspecialchars($typeLabel) . '</div>'
+            . '<h2 class="typechopay-product-panel__title">' . htmlspecialchars($title) . '</h2>'
+            . '<p class="typechopay-product-panel__desc">' . htmlspecialchars($summary) . '</p>'
+            . '<div class="typechopay-product-panel__meta">'
+            . '<span class="typechopay-product-panel__price">' . htmlspecialchars(Support\Money::formatForDisplay($amount, $currency)) . '</span>'
+            . $soldHtml
+            . $stockHtml
+            . '</div>'
+            . '<div class="typechopay-product-panel__actions">' . $actions . '</div>'
+            . '</div>'
+            . '</section>';
     }
 
     /**
@@ -446,32 +584,11 @@ class Plugin implements PluginInterface
             $catName = (string) $categories[(int) $product['category_id']]['name'];
         }
 
-        // Stock info for cardcode products.
-        $stockHtml = '';
-        $stockPolicy = (string) ($product['stock_policy'] ?? 'none');
-        if ($stockPolicy === 'reserve_on_order') {
-            try {
-                $cardService = new Services\CardCodeService(Db::get());
-                $counts = $cardService->stockCounts($pid);
-                $displayMode = (string) ($product['stock_display_mode'] ?? 'exact');
-                if ($displayMode === 'range') {
-                    $avail = $counts['available'];
-                    if ($avail >= 100) $stockText = '充足';
-                    elseif ($avail >= 10) $stockText = ($avail - $avail % 10) . '+';
-                    elseif ($avail > 0) $stockText = '少量';
-                    else $stockText = '售罄';
-                } elseif ($displayMode === 'hidden') {
-                    $stockText = '';
-                } else {
-                    $stockText = _t('库存 %d', $counts['available']);
-                }
-                if ($stockText !== '') {
-                    $stockHtml = '<div class="typechopay-card__stock">' . htmlspecialchars($stockText) . '</div>';
-                }
-            } catch (\Throwable $e) {
-                // Silently skip stock display on error.
-            }
-        }
+        $stats = self::productDisplayStats($product);
+        $state = self::productDisplayState($product, $stats, $config);
+        $stockHtml = $stats['stock_text'] !== ''
+            ? '<div class="typechopay-card__stock">' . htmlspecialchars($stats['stock_text']) . '</div>'
+            : '';
 
         $summary = (string) ($product['summary'] ?? '');
         $coverUrl = (string) ($product['cover_url'] ?? '');
@@ -490,35 +607,9 @@ class Plugin implements PluginInterface
             $summaryHtml = '<p class="typechopay-card__summary">' . htmlspecialchars($summary) . '</p>';
         }
 
-        // Build pay form (reuse existing pay button logic).
-        $gateways = self::normalizeGateways(implode(',', $config['enabledGateways']));
-        $gateways = array_values(array_filter($gateways, function ($gw) use ($currency) {
-            return self::gatewaySupportsCurrency($gw, $currency);
-        }));
-        $action = Common::url('/action/' . self::ACTION . '?do=prepare', $options->index);
-        $labels = ['paypay' => 'PayPay', 'wechat' => '微信支付', 'alipay' => '支付宝'];
-
-        $buttons = [];
-        foreach ($gateways as $gateway) {
-            $payload = [
-                'product' => (string) $product['product_key'],
-                'currency' => $currency,
-                'biz_type' => 'product',
-                'biz_id' => $pid,
-                'gateway' => $gateway,
-                'return_to' => (string) $options->index,
-            ];
-            $payload['entry_signature'] = Support\Signer::sign($payload, self::signingSecret($options, $config));
-
-            $fields = '';
-            foreach ($payload as $key => $value) {
-                $fields .= '<input type="hidden" name="' . htmlspecialchars($key) . '" value="' . htmlspecialchars((string) $value) . '">';
-            }
-            $buttons[] = '<form method="post" action="' . htmlspecialchars($action) . '" class="typechopay-form">' . $fields
-                . '<button type="submit" class="typechopay-card__buy">' . htmlspecialchars($labels[$gateway] ?? $gateway) . '</button></form>';
-        }
-
-        $buttonsHtml = $buttons ? '<div class="typechopay-card__actions">' . implode('', $buttons) . '</div>' : '';
+        $buttonsHtml = '<div class="typechopay-card__actions">'
+            . self::renderProductActionArea($product, $options, $config, (string) $options->index, 'typechopay-card__buy', $state)
+            . '</div>';
 
         return '<article class="typechopay-card" data-product-id="' . $pid . '">'
             . $coverHtml
@@ -531,6 +622,202 @@ class Plugin implements PluginInterface
             . $buttonsHtml
             . '</div>'
             . '</article>';
+    }
+
+    private static function containsTypechoPayShortcode(string $content): bool
+    {
+        return stripos($content, '[typechopay') !== false;
+    }
+
+    private static function normalizeAutoInjectPosition(string $position): string
+    {
+        $position = trim($position);
+        return in_array($position, ['off', 'top', 'bottom', 'after_first_paragraph'], true) ? $position : 'off';
+    }
+
+    private static function isSingleContentArchive($archive): bool
+    {
+        if (!is_object($archive) || !method_exists($archive, 'is')) {
+            return false;
+        }
+
+        try {
+            if (!$archive->is('single')) {
+                return false;
+            }
+        } catch (\Throwable $e) {
+            return false;
+        }
+
+        $type = (string) ($archive->type ?? 'post');
+        return in_array($type, ['post', 'page'], true) && self::archiveContentId($archive) > 0;
+    }
+
+    private static function archiveContentId($archive): int
+    {
+        return is_object($archive) && isset($archive->cid) ? (int) $archive->cid : 0;
+    }
+
+    private static function findActiveProductByContentId(int $contentId): ?array
+    {
+        if ($contentId <= 0) {
+            return null;
+        }
+
+        $db = Db::get();
+        $row = $db->fetchRow(
+            $db->select()->from('table.pay_products')
+                ->where('content_id = ?', $contentId)
+                ->where('status = ?', 'active')
+                ->order('sort_order', Db::SORT_ASC)
+                ->order('id', Db::SORT_DESC)
+                ->limit(1)
+        );
+
+        return $row ?: null;
+    }
+
+    private static function activeProductCategories(): array
+    {
+        $categories = [];
+        $rows = Db::get()->fetchAll(
+            Db::get()->select()->from('table.pay_product_categories')->where('status = ?', 'active')
+        );
+        foreach ($rows as $row) {
+            $categories[(int) $row['id']] = $row;
+        }
+
+        return $categories;
+    }
+
+    private static function productDisplayStats(array $product): array
+    {
+        $stats = [
+            'available' => null,
+            'reserved' => 0,
+            'delivered' => 0,
+            'sold' => 0,
+            'total' => 0,
+            'stock_text' => '',
+        ];
+
+        if ((string) ($product['stock_policy'] ?? 'none') !== 'reserve_on_order') {
+            return $stats;
+        }
+
+        try {
+            $counts = (new Services\CardCodeService(Db::get()))->stockCounts((int) $product['id']);
+        } catch (\Throwable $e) {
+            return $stats;
+        }
+
+        $stats['available'] = (int) $counts['available'];
+        $stats['reserved'] = (int) $counts['reserved'];
+        $stats['delivered'] = (int) $counts['delivered'];
+        $stats['sold'] = (int) $counts['delivered'];
+        $stats['total'] = (int) $counts['total'];
+        $displayMode = (string) ($product['stock_display_mode'] ?? 'exact');
+
+        if ($displayMode === 'hidden') {
+            return $stats;
+        }
+
+        if ($displayMode === 'range') {
+            if ($stats['available'] >= 100) {
+                $stats['stock_text'] = _t('库存充足');
+            } elseif ($stats['available'] >= 10) {
+                $stats['stock_text'] = _t('库存 %d+', $stats['available'] - $stats['available'] % 10);
+            } elseif ($stats['available'] > 0) {
+                $stats['stock_text'] = _t('库存少量');
+            } else {
+                $stats['stock_text'] = _t('已售罄');
+            }
+            return $stats;
+        }
+
+        $stats['stock_text'] = _t('库存 %d', $stats['available']);
+        return $stats;
+    }
+
+    private static function productDisplayState(array $product, array $stats, array $config): array
+    {
+        if ((string) ($product['status'] ?? 'active') !== 'active') {
+            return ['status' => 'paused', 'can_buy' => false, 'label' => _t('商品已下架'), 'gateways' => []];
+        }
+
+        if ((string) ($product['purchase_policy'] ?? 'repeatable') === 'once' && self::currentVisitorHasPurchased($product)) {
+            return ['status' => 'owned', 'can_buy' => false, 'label' => _t('已购买'), 'gateways' => []];
+        }
+
+        if ((string) ($product['stock_policy'] ?? 'none') === 'reserve_on_order'
+            && $stats['available'] !== null
+            && (int) $stats['available'] <= 0) {
+            return ['status' => 'soldout', 'can_buy' => false, 'label' => _t('商品已售罄'), 'gateways' => []];
+        }
+
+        if ((int) ($product['allow_guest'] ?? 1) !== 1 && !User::alloc()->hasLogin()) {
+            return ['status' => 'login_required', 'can_buy' => false, 'label' => _t('登录后购买'), 'gateways' => []];
+        }
+
+        $gateways = self::availableProductGateways($product, $config);
+        if (!$gateways) {
+            return ['status' => 'unavailable', 'can_buy' => false, 'label' => _t('暂无可用支付方式'), 'gateways' => []];
+        }
+
+        return ['status' => 'available', 'can_buy' => true, 'label' => _t('立即购买'), 'gateways' => $gateways];
+    }
+
+    private static function availableProductGateways(array $product, array $config): array
+    {
+        $currency = (string) ($product['currency'] ?? 'CNY');
+        $gateways = self::normalizeGateways(implode(',', $config['enabledGateways']));
+        return array_values(array_filter($gateways, function ($gateway) use ($currency) {
+            return self::gatewaySupportsCurrency($gateway, $currency);
+        }));
+    }
+
+    private static function renderProductActionArea(
+        array $product,
+        Options $options,
+        array $config,
+        string $returnTo,
+        string $buttonClass,
+        array $state
+    ): string {
+        if (empty($state['can_buy'])) {
+            if (($state['status'] ?? '') === 'login_required') {
+                return '<a class="' . htmlspecialchars($buttonClass) . ' typechopay-button--secondary" href="'
+                    . htmlspecialchars((string) $options->loginUrl) . '">' . htmlspecialchars((string) $state['label']) . '</a>';
+            }
+
+            return '<button type="button" class="' . htmlspecialchars($buttonClass)
+                . ' typechopay-button--disabled" disabled>' . htmlspecialchars((string) $state['label']) . '</button>';
+        }
+
+        $action = Common::url('/action/' . self::ACTION . '?do=prepare', $options->index);
+        $labels = ['paypay' => 'PayPay', 'wechat' => '微信支付', 'alipay' => '支付宝'];
+        $buttons = [];
+        foreach ($state['gateways'] as $gateway) {
+            $payload = [
+                'product_id' => (string) (int) $product['id'],
+                'gateway' => $gateway,
+                'return_to' => $returnTo,
+            ];
+            $payload['entry_signature'] = Support\Signer::sign($payload, self::signingSecret($options, $config));
+
+            $fields = '';
+            foreach ($payload as $key => $value) {
+                $fields .= '<input type="hidden" name="' . htmlspecialchars($key) . '" value="'
+                    . htmlspecialchars((string) $value) . '">';
+            }
+            $buttons[] = '<form method="post" action="' . htmlspecialchars($action) . '" class="typechopay-form">'
+                . $fields
+                . '<button type="submit" class="' . htmlspecialchars($buttonClass) . '">'
+                . htmlspecialchars($labels[$gateway] ?? $gateway)
+                . '</button></form>';
+        }
+
+        return implode('', $buttons);
     }
 
     /**
@@ -663,7 +950,7 @@ class Plugin implements PluginInterface
      */
     private static function currentVisitorHasPurchased(array $product): bool
     {
-        $productId = (int) ($product['product_id'] ?? ($product['snapshot']['id'] ?? 0));
+        $productId = (int) ($product['product_id'] ?? ($product['id'] ?? ($product['snapshot']['id'] ?? 0)));
         if ($productId <= 0) {
             // Legacy inline products: fall back to content-based check.
             return self::currentVisitorCanAccess((string) $product['biz_type'], (int) $product['biz_id']);

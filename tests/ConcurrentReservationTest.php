@@ -85,7 +85,7 @@ tc_assert(strpos($actionSource, 'assertRateLimit') !== false, 'Action calls asse
 // ---- Test 5: Plugin schema ----
 $pluginSource = file_get_contents($root . '/Plugin.php');
 tc_assert(strpos($pluginSource, 'uniq_reserved_order') !== false, 'Schema has uniq_reserved_order');
-tc_assert(strpos($pluginSource, 'SCHEMA_VERSION = 7') !== false, 'Schema version is 7');
+tc_assert(strpos($pluginSource, 'SCHEMA_VERSION = 9') !== false, 'Schema version is 9');
 tc_assert(strpos($pluginSource, 'return_token_hash') !== false, 'Schema has return_token_hash');
 tc_assert(strpos($pluginSource, 'return_token_expires_at') !== false, 'Schema has return_token_expires_at');
 tc_assert(strpos($pluginSource, 'delivery_token_hash') !== false, 'Schema has delivery_token_hash');

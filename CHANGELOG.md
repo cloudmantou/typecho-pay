@@ -2,6 +2,22 @@
 
 ## Unreleased
 
+## 0.4.0 - 2026-06-26
+
+### Article products
+
+- Added optional article-product auto injection for products bound by `pay_products.content_id`.
+- Added `[typechopay_product]` support without a `product` attribute, resolving the current article's bound active product.
+- Added default article product panel markup with stock, sold count, login-required, sold-out, owned, and gateway availability states.
+- Added `product-panel.php` theme override support via `usr/themes/{theme}/typechopay/product-panel.php`.
+
+### Purchase rules
+
+- Enforced `allow_guest = 0` on the payment create path, not only in admin metadata.
+- Included `allow_guest` and `max_per_user` in stored product resolution and order snapshots.
+- New card-code products now default to login-required purchase unless the admin explicitly enables guest purchase.
+- Product edit version bumps now include status, `max_per_user`, `allow_guest`, `content_id`, stock policy, and deliverable changes.
+
 ## 0.3.2 - 2026-06-26
 
 ### Admin panels

@@ -158,10 +158,21 @@ if ($request->isPost()) {
             $db->query('START TRANSACTION', Db::WRITE, '');
             try {
                 $oldContentId = (int) ($product['content_id'] ?? 0);
+                $oldMaxPerUser = isset($product['max_per_user']) && (int) $product['max_per_user'] > 0
+                    ? (int) $product['max_per_user']
+                    : null;
+                $oldStatus = (string) ($product['status'] ?? 'active');
+                $oldStockPolicy = (string) ($product['stock_policy'] ?? 'none');
+                $oldAllowGuest = (int) ($product['allow_guest'] ?? 1);
+                $newStockPolicy = $enableCardcode ? 'reserve_on_order' : 'none';
                 $versionBump = ((int) $product['amount'] !== $amount
                     || (string) $product['currency'] !== $currency
+                    || $oldStatus !== $status
+                    || $oldAllowGuest !== $allowGuest
                     || (string) $product['purchase_policy'] !== $policy
+                    || $oldMaxPerUser !== $maxPerUser
                     || $oldContentId !== (int) ($contentId ?? 0)
+                    || $oldStockPolicy !== $newStockPolicy
                     || $hasPostAccess !== $enablePostAccess
                     || $hasCardcode !== $enableCardcode) ? 1 : 0;
 
@@ -174,7 +185,7 @@ if ($request->isPost()) {
                     'purchase_policy' => $policy,
                     'max_per_user' => $maxPerUser,
                     'content_id' => $contentId,
-                    'stock_policy' => $enableCardcode ? 'reserve_on_order' : 'none',
+                    'stock_policy' => $newStockPolicy,
                     'category_id' => $categoryId,
                     'cover_url' => $coverUrl,
                     'summary' => $summary,
@@ -245,6 +256,7 @@ if ($request->isPost()) {
 
             $enablePostAccess = (string) $request->get('enable_post_access') === '1';
             $enableCardcode = (string) $request->get('enable_cardcode') === '1';
+            $allowGuest = (string) $request->get('allow_guest') === '1' ? 1 : 0;
             if (!$enablePostAccess && !$enableCardcode) {
                 throw new InvalidArgumentException('请至少选择一种交付内容。');
             }
@@ -275,7 +287,7 @@ if ($request->isPost()) {
                     'amount' => $amount,
                     'currency' => $currency,
                     'status' => 'active',
-                    'allow_guest' => 1,
+                    'allow_guest' => $allowGuest,
                     'purchase_policy' => $policy,
                     'max_per_user' => $maxPerUser,
                     'duration_seconds' => null,
@@ -504,7 +516,8 @@ include 'menu.php';
 
         <div class="typecho-list-operate clearfix">
             <p>管理商品、分类、卡密库存和销售。
-            商城短代码: <code>[typechopay_shop]</code> <code>[typechopay_product product="标识"]</code>
+            商城短代码: <code>[typechopay_shop]</code> <code>[typechopay_product product="标识"]</code> <code>[typechopay_product]</code>
+            绑定文章后可在插件设置中开启自动插入商品卡。
             &nbsp; <a href="<?php echo htmlspecialchars($options->adminUrl . 'extending.php?panel=TypechoPay%2Fmanage%2Fcard-inventory.php'); ?>">卡密库存</a>
             &nbsp; <a href="<?php echo htmlspecialchars($options->adminUrl . 'extending.php?panel=TypechoPay%2Fmanage%2Fcard-sales.php'); ?>">卡密销售</a></p>
         </div>
@@ -610,6 +623,13 @@ include 'menu.php';
                     &nbsp; <label>max_per_user: <input type="number" name="max_per_user" min="1" value="<?php echo (int) ($editProduct['max_per_user'] ?? 0); ?>" style="width:80px;" placeholder="N"></label>
                 </p>
                 <p>
+                    <label>
+                        <input type="checkbox" name="allow_guest" value="1" <?php if (!empty($editProduct['allow_guest'])) echo 'checked'; ?>>
+                        <?php _e('允许游客购买'); ?>
+                    </label>
+                    <br><small><?php _e('卡密商品建议关闭，要求用户登录后购买，便于售后查询和卡密找回。'); ?></small>
+                </p>
+                <p>
                     <label><?php _e('文章 cid'); ?></label><br>
                     <input type="number" name="content_id" min="1" value="<?php echo (int) ($editProduct['content_id'] ?? 0); ?>" style="width:220px;" placeholder="留空则不解锁文章">
                 </p>
@@ -698,6 +718,13 @@ include 'menu.php';
                         <option value="limited"><?php _e('limited - 限制每用户购买次数'); ?></option>
                     </select>
                     &nbsp; <label>max_per_user: <input type="number" name="max_per_user" min="1" style="width:80px;" placeholder="N"></label>
+                </p>
+                <p>
+                    <label>
+                        <input type="checkbox" name="allow_guest" value="1">
+                        <?php _e('允许游客购买'); ?>
+                    </label>
+                    <br><small><?php _e('默认关闭。卡密商品建议要求登录购买，避免用户丢失卡密后无法找回。'); ?></small>
                 </p>
                 <p>
                     <label><?php _e('文章 cid（可选）'); ?></label><br>
@@ -869,6 +896,9 @@ include 'menu.php';
                                 <br><small style="color:#999;"><?php echo htmlspecialchars(function_exists('mb_substr') ? mb_substr($product['summary'], 0, 40) : substr($product['summary'], 0, 40)); ?></small>
                             <?php endif; ?>
                             <br><small><?php echo htmlspecialchars(implode(', ', $handlers)); ?></small>
+                            <?php if (!empty($product['content_id'])): ?>
+                                <br><small><?php _e('绑定文章 cid'); ?>: <?php echo (int) $product['content_id']; ?></small>
+                            <?php endif; ?>
                         </td>
                         <td><?php echo htmlspecialchars($product['currency'] . ' ' . $product['amount']); ?></td>
                         <td><?php echo htmlspecialchars($product['status']); ?></td>
