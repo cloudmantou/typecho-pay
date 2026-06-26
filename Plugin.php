@@ -61,8 +61,10 @@ class Plugin implements PluginInterface
     private const MENU = 'TypechoPay';
     private const ORDERS_PANEL = 'TypechoPay/manage/orders.php';
     private const PRODUCTS_PANEL = 'TypechoPay/manage/products.php';
+    private const CARD_INVENTORY_PANEL = 'TypechoPay/manage/card-inventory.php';
+    private const CARD_SALES_PANEL = 'TypechoPay/manage/card-sales.php';
     private const SETTINGS_HELP_PANEL = 'TypechoPay/manage/settings-help.php';
-    private const SCHEMA_VERSION = 6;
+    private const SCHEMA_VERSION = 7;
 
     /**
      * 启用插件。
@@ -74,7 +76,9 @@ class Plugin implements PluginInterface
         Helper::addAction(self::ACTION, '\\' . __NAMESPACE__ . '\\Action');
         $menuIndex = Helper::addMenu(self::MENU);
         Helper::addPanel($menuIndex, self::ORDERS_PANEL, _t('支付订单'), _t('TypechoPay'), 'administrator');
-        Helper::addPanel($menuIndex, self::PRODUCTS_PANEL, _t('商品与卡密'), _t('TypechoPay'), 'administrator');
+        Helper::addPanel($menuIndex, self::PRODUCTS_PANEL, _t('商品管理'), _t('TypechoPay'), 'administrator');
+        Helper::addPanel($menuIndex, self::CARD_INVENTORY_PANEL, _t('卡密库存'), _t('TypechoPay'), 'administrator');
+        Helper::addPanel($menuIndex, self::CARD_SALES_PANEL, _t('卡密销售'), _t('TypechoPay'), 'administrator');
         Helper::addPanel($menuIndex, self::SETTINGS_HELP_PANEL, _t('支付设置说明'), _t('TypechoPay'), 'administrator');
 
         \Typecho\Plugin::factory('Widget\Base\Contents')->contentEx = __CLASS__ . '::renderPayShortcodes';
@@ -91,6 +95,8 @@ class Plugin implements PluginInterface
         $menuIndex = Helper::removeMenu(self::MENU);
         Helper::removePanel($menuIndex, self::ORDERS_PANEL);
         Helper::removePanel($menuIndex, self::PRODUCTS_PANEL);
+        Helper::removePanel($menuIndex, self::CARD_INVENTORY_PANEL);
+        Helper::removePanel($menuIndex, self::CARD_SALES_PANEL);
         Helper::removePanel($menuIndex, self::SETTINGS_HELP_PANEL);
 
         return _t('TypechoPay 已禁用，订单表会保留以便审计和恢复。');
@@ -667,7 +673,10 @@ class Plugin implements PluginInterface
                 UNIQUE KEY `uniq_product_fingerprint` (`product_id`, `fingerprint`),
                 UNIQUE KEY `uniq_reserved_order` (`reserved_order_id`),
                 KEY `idx_product_status` (`product_id`, `status`),
-                KEY `idx_reserved_until` (`reserved_until`)
+                KEY `idx_reserved_until` (`reserved_until`),
+                KEY `idx_delivered_order` (`delivered_order_id`),
+                KEY `idx_product_delivery` (`product_id`, `status`, `delivered_at`),
+                KEY `idx_batch_status` (`batch_id`, `status`)
             ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4",
             "CREATE TABLE IF NOT EXISTS {$nonces} (
                 `id` BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
@@ -840,6 +849,9 @@ class Plugin implements PluginInterface
             "CREATE UNIQUE INDEX IF NOT EXISTS \"{$prefix}pay_card_items_uniq_reserved_order\" ON {$cardItems} (reserved_order_id)",
             "CREATE INDEX IF NOT EXISTS \"{$prefix}pay_card_items_idx_product_status\" ON {$cardItems} (product_id, status)",
             "CREATE INDEX IF NOT EXISTS \"{$prefix}pay_card_items_idx_reserved_until\" ON {$cardItems} (reserved_until)",
+            "CREATE INDEX IF NOT EXISTS \"{$prefix}pay_card_items_idx_delivered_order\" ON {$cardItems} (delivered_order_id)",
+            "CREATE INDEX IF NOT EXISTS \"{$prefix}pay_card_items_idx_product_delivery\" ON {$cardItems} (product_id, status, delivered_at)",
+            "CREATE INDEX IF NOT EXISTS \"{$prefix}pay_card_items_idx_batch_status\" ON {$cardItems} (batch_id, status)",
             "CREATE TABLE IF NOT EXISTS {$nonces} (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 nonce_hash TEXT NOT NULL UNIQUE,
@@ -1009,6 +1021,9 @@ class Plugin implements PluginInterface
             "CREATE UNIQUE INDEX IF NOT EXISTS \"{$prefix}pay_card_items_uniq_reserved_order\" ON {$cardItems} (reserved_order_id)",
             "CREATE INDEX IF NOT EXISTS \"{$prefix}pay_card_items_idx_product_status\" ON {$cardItems} (product_id, status)",
             "CREATE INDEX IF NOT EXISTS \"{$prefix}pay_card_items_idx_reserved_until\" ON {$cardItems} (reserved_until)",
+            "CREATE INDEX IF NOT EXISTS \"{$prefix}pay_card_items_idx_delivered_order\" ON {$cardItems} (delivered_order_id)",
+            "CREATE INDEX IF NOT EXISTS \"{$prefix}pay_card_items_idx_product_delivery\" ON {$cardItems} (product_id, status, delivered_at)",
+            "CREATE INDEX IF NOT EXISTS \"{$prefix}pay_card_items_idx_batch_status\" ON {$cardItems} (batch_id, status)",
             "CREATE TABLE IF NOT EXISTS {$nonces} (
                 id BIGSERIAL PRIMARY KEY,
                 nonce_hash VARCHAR(64) NOT NULL UNIQUE,
@@ -1111,8 +1126,22 @@ class Plugin implements PluginInterface
                 $db->query("CREATE UNIQUE INDEX {$reservedOrderIndex} ON {$cardItemsTable} (reserved_order_id)", Db::WRITE, '');
             }
         } catch (\Throwable $e) {
-            // May fail if duplicate reserved_order_id values exist. Log but don't block migration.
             error_log('[TypechoPay] Could not add unique constraint on reserved_order_id: ' . $e->getMessage());
+        }
+
+        // v7: Add indexes for card sales and delivery queries.
+        $deliveredOrderIdx = $isMysql ? 'idx_delivered_order' : '"' . $prefix . 'pay_card_items_idx_delivered_order"';
+        $productDeliveryIdx = $isMysql ? 'idx_product_delivery' : '"' . $prefix . 'pay_card_items_idx_product_delivery"';
+        $batchStatusIdx = $isMysql ? 'idx_batch_status' : '"' . $prefix . 'pay_card_items_idx_batch_status"';
+
+        if ($isMysql) {
+            self::trySchema($db, "ALTER TABLE {$cardItemsTable} ADD KEY `{$deliveredOrderIdx}` (delivered_order_id)");
+            self::trySchema($db, "ALTER TABLE {$cardItemsTable} ADD KEY `{$productDeliveryIdx}` (product_id, status, delivered_at)");
+            self::trySchema($db, "ALTER TABLE {$cardItemsTable} ADD KEY `{$batchStatusIdx}` (batch_id, status)");
+        } else {
+            self::trySchema($db, "CREATE INDEX {$deliveredOrderIdx} ON {$cardItemsTable} (delivered_order_id)");
+            self::trySchema($db, "CREATE INDEX {$productDeliveryIdx} ON {$cardItemsTable} (product_id, status, delivered_at)");
+            self::trySchema($db, "CREATE INDEX {$batchStatusIdx} ON {$cardItemsTable} (batch_id, status)");
         }
     }
 

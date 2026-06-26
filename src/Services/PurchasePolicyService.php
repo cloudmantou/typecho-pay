@@ -74,7 +74,7 @@ final class PurchasePolicyService
             return 0;
         }
 
-        $select = $this->db->select('id')->from('table.pay_orders')
+        $select = $this->db->select('COUNT(*) AS cnt')->from('table.pay_orders')
             ->where('product_id = ?', $productId)
             ->where('payment_status = ?', 'paid');
 
@@ -85,7 +85,7 @@ final class PurchasePolicyService
                 ->where('user_id IS NULL');
         }
 
-        $row = $this->db->fetchRow($select->limit(1));
-        return $row ? 1 : 0;
+        $row = $this->db->fetchRow($select);
+        return (int) ($row['cnt'] ?? 0);
     }
 }

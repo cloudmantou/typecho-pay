@@ -83,7 +83,7 @@ tp_assert(
     'Catches unique violations as duplicates'
 );
 tp_assert(
-    strpos($cardServiceSource, 'Any other database error is fatal') !== false,
+    strpos($cardServiceSource, "throw \$e") !== false || strpos($cardServiceSource, 'Any other database error is fatal') !== false,
     'Rethrows non-unique errors'
 );
 

@@ -21,6 +21,15 @@ final class CardCodeService
         $this->db = $db;
     }
 
+    /**
+     * Import card codes for a product.
+     *
+     * @param int $productId
+     * @param string $batchName
+     * @param string $rawLines Raw text (from textarea or file content)
+     * @param int|null $importedBy
+     * @return array{batch_id:int, imported:int, duplicates:int, duplicate_in_file:int, raw_count:int, total:int}
+     */
     public function importBatch(int $productId, string $batchName, string $rawLines, ?int $importedBy = null): array
     {
         if ($productId <= 0) {
@@ -28,11 +37,13 @@ final class CardCodeService
         }
 
         $batchName = trim($batchName);
-        if ($batchName !== '' && mb_strlen($batchName) > 128) {
+        $nameLen = function_exists('mb_strlen') ? mb_strlen($batchName) : strlen($batchName);
+        if ($batchName !== '' && $nameLen > 128) {
             throw new \InvalidArgumentException('Batch name is too long (max 128 characters).');
         }
 
-        $items = $this->parseLines($rawLines);
+        $parsed = $this->parseLines($rawLines);
+        $items = $parsed['items'];
         if (!$items) {
             throw new \InvalidArgumentException('No card codes to import.');
         }
@@ -44,7 +55,7 @@ final class CardCodeService
         $now = date('Y-m-d H:i:s');
         $keyMaterial = $this->keyMaterial();
         $imported = 0;
-        $duplicates = 0;
+        $dbDuplicates = 0;
 
         $this->db->query('START TRANSACTION', Db::WRITE, '');
 
@@ -57,40 +68,60 @@ final class CardCodeService
                 'created_at' => $now,
             ]));
 
-            foreach ($items as $item) {
-                $fingerprint = $this->fingerprint($productId, $item['code'], $item['secret']);
-                $codeCiphertext = CardCodeCipher::encrypt($item['code'], $keyMaterial);
-                $secretCiphertext = $item['secret'] !== null
-                    ? CardCodeCipher::encrypt($item['secret'], $keyMaterial)
-                    : null;
-                try {
-                    $this->db->query($this->db->insert('table.pay_card_items')->rows([
-                        'product_id' => $productId,
-                        'batch_id' => (int) $batchId,
-                        'code_ciphertext' => $codeCiphertext,
-                        'secret_ciphertext' => $secretCiphertext,
-                        'fingerprint' => $fingerprint,
-                        'status' => 'available',
-                        'reserved_order_id' => null,
-                        'reserved_until' => null,
-                        'delivered_order_id' => null,
-                        'delivered_at' => null,
-                        'created_at' => $now,
-                        'updated_at' => $now,
-                    ]));
-                    $imported++;
-                } catch (\Throwable $e) {
-                    $msg = strtolower($e->getMessage());
-                    // Only treat unique constraint violations as duplicates.
-                    // MySQL: 1062, SQLite: UNIQUE constraint failed, PostgreSQL: unique_violation
-                    if (strpos($msg, '1062') !== false
-                        || strpos($msg, 'unique') !== false
-                        || strpos($msg, 'duplicate') !== false) {
-                        $duplicates++;
+            // Pre-compute all fingerprints and encrypt in chunks to avoid timeout.
+            $chunkSize = 500;
+            $chunks = array_chunk($items, $chunkSize);
+
+            foreach ($chunks as $chunk) {
+                // Query existing fingerprints for this chunk to avoid DB unique violations.
+                $fingerprints = [];
+                foreach ($chunk as $item) {
+                    $fingerprints[] = $this->fingerprint($productId, $item['code'], $item['secret']);
+                }
+
+                $existing = $this->findExistingFingerprints($productId, $fingerprints);
+                $existingSet = [];
+                foreach ($existing as $fp) {
+                    $existingSet[$fp] = true;
+                }
+
+                foreach ($chunk as $item) {
+                    $fp = $this->fingerprint($productId, $item['code'], $item['secret']);
+                    if (isset($existingSet[$fp])) {
+                        $dbDuplicates++;
                         continue;
                     }
-                    // Any other database error is fatal — rethrow to trigger rollback.
-                    throw $e;
+
+                    $codeCiphertext = CardCodeCipher::encrypt($item['code'], $keyMaterial);
+                    $secretCiphertext = $item['secret'] !== null
+                        ? CardCodeCipher::encrypt($item['secret'], $keyMaterial)
+                        : null;
+                    try {
+                        $this->db->query($this->db->insert('table.pay_card_items')->rows([
+                            'product_id' => $productId,
+                            'batch_id' => (int) $batchId,
+                            'code_ciphertext' => $codeCiphertext,
+                            'secret_ciphertext' => $secretCiphertext,
+                            'fingerprint' => $fp,
+                            'status' => 'available',
+                            'reserved_order_id' => null,
+                            'reserved_until' => null,
+                            'delivered_order_id' => null,
+                            'delivered_at' => null,
+                            'created_at' => $now,
+                            'updated_at' => $now,
+                        ]));
+                        $imported++;
+                    } catch (\Throwable $e) {
+                        $msg = strtolower($e->getMessage());
+                        if (strpos($msg, '1062') !== false
+                            || strpos($msg, 'unique') !== false
+                            || strpos($msg, 'duplicate') !== false) {
+                            $dbDuplicates++;
+                            continue;
+                        }
+                        throw $e;
+                    }
                 }
             }
 
@@ -111,9 +142,116 @@ final class CardCodeService
         return [
             'batch_id' => (int) $batchId,
             'imported' => $imported,
-            'duplicates' => $duplicates,
+            'duplicates' => $dbDuplicates,
+            'duplicate_in_file' => $parsed['duplicate_in_file'],
+            'raw_count' => $parsed['raw_count'],
             'total' => count($items),
         ];
+    }
+
+    /**
+     * Mark card items as void (admin action).
+     */
+    public function markVoid(array $ids): int
+    {
+        if (!$ids) {
+            return 0;
+        }
+
+        return $this->db->query($this->db->update('table.pay_card_items')->rows([
+            'status' => 'void',
+            'updated_at' => date('Y-m-d H:i:s'),
+        ])->where('id IN ?', $ids)
+            ->where('status = ?', 'available'));
+    }
+
+    /**
+     * Mark card items as compromised (admin action).
+     */
+    public function markCompromised(array $ids): int
+    {
+        if (!$ids) {
+            return 0;
+        }
+
+        return $this->db->query($this->db->update('table.pay_card_items')->rows([
+            'status' => 'compromised',
+            'updated_at' => date('Y-m-d H:i:s'),
+        ])->where('id IN ?', $ids)
+            ->where('status IN ?', ['available', 'reserved', 'delivered']));
+    }
+
+    /**
+     * Paginated card inventory for admin listing.
+     */
+    public function inventory(int $productId, ?string $status = null, ?int $batchId = null, int $page = 1, int $perPage = 50): array
+    {
+        $select = $this->db->select()->from('table.pay_card_items');
+        if ($productId > 0) {
+            $select->where('product_id = ?', $productId);
+        }
+        if ($status !== null && $status !== '') {
+            $select->where('status = ?', $status);
+        }
+        if ($batchId !== null && $batchId > 0) {
+            $select->where('batch_id = ?', $batchId);
+        }
+
+        // Count total.
+        $countSelect = $this->db->select('COUNT(*) AS cnt')->from('table.pay_card_items');
+        if ($productId > 0) {
+            $countSelect->where('product_id = ?', $productId);
+        }
+        if ($status !== null && $status !== '') {
+            $countSelect->where('status = ?', $status);
+        }
+        if ($batchId !== null && $batchId > 0) {
+            $countSelect->where('batch_id = ?', $batchId);
+        }
+        $total = (int) (($this->db->fetchRow($countSelect))['cnt'] ?? 0);
+
+        $offset = max(0, ($page - 1) * $perPage);
+        $rows = $this->db->fetchAll(
+            $select->order('id', Db::SORT_DESC)->limit($perPage)->offset($offset)
+        );
+
+        return ['rows' => $rows, 'total' => $total, 'page' => $page, 'per_page' => $perPage];
+    }
+
+    /**
+     * Paginated card sales (delivered items with order info).
+     */
+    public function sales(int $productId = 0, int $page = 1, int $perPage = 50): array
+    {
+        $cardTable = $this->quotedTable('pay_card_items');
+        $orderTable = $this->quotedTable('pay_orders');
+        $fulfillmentTable = $this->quotedTable('pay_fulfillments');
+
+        $where = "ci.status = 'delivered'";
+        if ($productId > 0) {
+            $where .= " AND ci.product_id = " . (int) $productId;
+        }
+
+        $countRow = $this->db->fetchRow(
+            "SELECT COUNT(*) AS cnt FROM {$cardTable} ci WHERE {$where}"
+        );
+        $total = (int) ($countRow['cnt'] ?? 0);
+
+        $offset = max(0, ($page - 1) * $perPage);
+        $rows = $this->db->fetchAll(
+            "SELECT ci.id AS card_id, ci.product_id, ci.batch_id, ci.delivered_order_id, ci.delivered_at,
+                    o.out_trade_no, o.amount, o.currency, o.gateway, o.user_id, o.guest_token_hash,
+                    o.payment_status, o.fulfillment_status, o.paid_at,
+                    f.attempts, f.last_error, f.status AS fulfillment_detail_status
+             FROM {$cardTable} ci
+             LEFT JOIN {$orderTable} o ON ci.delivered_order_id = o.id
+             LEFT JOIN {$fulfillmentTable} f ON f.order_id = o.id AND f.card_item_id = ci.id
+             WHERE {$where}
+             ORDER BY ci.delivered_at DESC
+             LIMIT {$perPage} OFFSET {$offset}"
+        );
+
+        return ['rows' => $rows, 'total' => $total, 'page' => $page, 'per_page' => $perPage];
     }
 
     public function reserveForOrder(array $order): ?array
@@ -292,20 +430,102 @@ final class CardCodeService
 
     public function releaseExpiredReservations(?int $productId = null): void
     {
-        $update = $this->db->update('table.pay_card_items')->rows([
-            'status' => 'available',
-            'reserved_order_id' => null,
-            'reserved_until' => null,
-            'updated_at' => date('Y-m-d H:i:s'),
-        ])->where('status = ?', 'reserved')
-            ->where('reserved_until IS NOT NULL')
-            ->where('reserved_until < ?', date('Y-m-d H:i:s'));
+        // Only release cards whose associated orders are NOT paid.
+        // Paid orders must keep their reservation so delivery can proceed.
+        $now = date('Y-m-d H:i:s');
+        $cardTable = $this->quotedTable('pay_card_items');
+        $orderTable = $this->quotedTable('pay_orders');
+
+        $sql = "UPDATE {$cardTable} ci
+            LEFT JOIN {$orderTable} o ON ci.reserved_order_id = o.id
+            SET ci.status = 'available',
+                ci.reserved_order_id = NULL,
+                ci.reserved_until = NULL,
+                ci.updated_at = '{$now}'
+            WHERE ci.status = 'reserved'
+              AND ci.reserved_until IS NOT NULL
+              AND ci.reserved_until < '{$now}'
+              AND (o.id IS NULL OR o.payment_status NOT IN ('paid', 'processing'))";
 
         if ($productId !== null && $productId > 0) {
-            $update->where('product_id = ?', $productId);
+            $sql .= " AND ci.product_id = " . (int) $productId;
         }
 
-        $this->db->query($update);
+        try {
+            $this->db->query($sql, Db::WRITE, '');
+        } catch (\Throwable $e) {
+            // Fallback for SQLite/PostgreSQL: use subquery approach.
+            // First find expired reservations with unpaid orders, then release them.
+            $adapter = strtolower($this->db->getAdapterName());
+            if (strpos($adapter, 'sqlite') !== false) {
+                $this->releaseExpiredReservationsSqlite($productId, $now);
+                return;
+            }
+            // PostgreSQL: use EXISTS subquery.
+            $this->releaseExpiredReservationsSubquery($productId, $now);
+        }
+    }
+
+    private function releaseExpiredReservationsSqlite(?int $productId, string $now): void
+    {
+        $cardTable = $this->quotedTable('pay_card_items');
+        $orderTable = $this->quotedTable('pay_orders');
+
+        // SQLite: collect IDs first, then update.
+        $sql = "SELECT ci.id FROM {$cardTable} ci
+            LEFT JOIN {$orderTable} o ON ci.reserved_order_id = o.id
+            WHERE ci.status = 'reserved'
+              AND ci.reserved_until IS NOT NULL
+              AND ci.reserved_until < '{$now}'
+              AND (o.id IS NULL OR o.payment_status NOT IN ('paid', 'processing'))";
+
+        if ($productId !== null && $productId > 0) {
+            $sql .= " AND ci.product_id = " . (int) $productId;
+        }
+
+        $rows = $this->db->fetchAll($sql);
+        if (!$rows) {
+            return;
+        }
+
+        $ids = array_map(fn($r) => (int) $r['id'], $rows);
+        foreach (array_chunk($ids, 500) as $chunk) {
+            $this->db->query($this->db->update('table.pay_card_items')->rows([
+                'status' => 'available',
+                'reserved_order_id' => null,
+                'reserved_until' => null,
+                'updated_at' => $now,
+            ])->where('id IN ?', $chunk));
+        }
+    }
+
+    private function releaseExpiredReservationsSubquery(?int $productId, string $now): void
+    {
+        $cardTable = $this->quotedTable('pay_card_items');
+        $orderTable = $this->quotedTable('pay_orders');
+
+        $sql = "UPDATE {$cardTable}
+            SET status = 'available',
+                reserved_order_id = NULL,
+                reserved_until = NULL,
+                updated_at = '{$now}'
+            WHERE status = 'reserved'
+              AND reserved_until IS NOT NULL
+              AND reserved_until < '{$now}'
+              AND (
+                reserved_order_id IS NULL
+                OR NOT EXISTS (
+                    SELECT 1 FROM {$orderTable}
+                    WHERE {$orderTable}.id = {$cardTable}.reserved_order_id
+                      AND {$orderTable}.payment_status IN ('paid', 'processing')
+                )
+              )";
+
+        if ($productId !== null && $productId > 0) {
+            $sql .= " AND product_id = " . (int) $productId;
+        }
+
+        $this->db->query($sql, Db::WRITE, '');
     }
 
     private function findOrderCard(int $productId, int $orderId, array $statuses): ?array
@@ -335,15 +555,20 @@ final class CardCodeService
     {
         $items = [];
         $seen = [];
+        $rawCount = 0;
+        $duplicateInFile = 0;
+
         foreach (preg_split('/\R/u', $rawLines) ?: [] as $line) {
             $line = trim((string) $line);
             if ($line === '') {
                 continue;
             }
 
+            $rawCount++;
             [$code, $secret] = $this->parseLine($line);
             $key = hash('sha256', $code . "\0" . (string) $secret);
             if (isset($seen[$key])) {
+                $duplicateInFile++;
                 continue;
             }
 
@@ -351,7 +576,36 @@ final class CardCodeService
             $items[] = ['code' => $code, 'secret' => $secret];
         }
 
-        return $items;
+        return [
+            'items' => $items,
+            'raw_count' => $rawCount,
+            'duplicate_in_file' => $duplicateInFile,
+        ];
+    }
+
+    /**
+     * Find which fingerprints already exist in the database for a given product.
+     */
+    private function findExistingFingerprints(int $productId, array $fingerprints): array
+    {
+        if (!$fingerprints) {
+            return [];
+        }
+
+        $existing = [];
+        // Query in chunks to avoid overly large IN clauses.
+        foreach (array_chunk($fingerprints, 500) as $chunk) {
+            $rows = $this->db->fetchAll(
+                $this->db->select('fingerprint')->from('table.pay_card_items')
+                    ->where('product_id = ?', $productId)
+                    ->where('fingerprint IN ?', $chunk)
+            );
+            foreach ($rows as $row) {
+                $existing[] = (string) $row['fingerprint'];
+            }
+        }
+
+        return $existing;
     }
 
     private function parseLine(string $line): array
