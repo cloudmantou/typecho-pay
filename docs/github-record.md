@@ -2,6 +2,29 @@
 
 Date: 2026-06-25
 
+## 2026-06-27 Article Card Import Submit (v0.4.9)
+
+### Change
+
+Made the article editor card import tab more explicit for operators.
+
+### Scope
+
+- Added a `确认提交` button directly below the pasted card textarea.
+- The button submits with `do=save`, so it saves the article and imports cards without forcing the publish action.
+- Added a browser-side empty textarea guard before submit.
+- Kept the existing backend import notice, so successful imports report raw count, duplicates, imported count, and database duplicates after reload.
+
+### Verification
+
+Run after pulling this change:
+
+```sh
+composer validate --no-check-lock --strict
+find . -path './vendor' -prune -o -name '*.php' -print0 | xargs -0 -n1 php -l
+for test in tests/*Test.php; do php "$test"; done
+```
+
 ## 2026-06-27 Admin Simplification and CNY Flow (v0.4.8)
 
 ### Change

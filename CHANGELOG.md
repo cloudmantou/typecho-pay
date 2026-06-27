@@ -2,6 +2,14 @@
 
 ## Unreleased
 
+## 0.4.9 - 2026-06-27
+
+### Article editor
+
+- Added an explicit `确认提交` button to the article editor card import tab.
+- The card import submit now saves the article and imports pasted cards, then returns to the card list with the existing import result notice.
+- Added an empty-input guard so the import submit button does not accidentally save without pasted card lines.
+
 ## 0.4.8 - 2026-06-27
 
 ### Admin simplification

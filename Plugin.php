@@ -54,7 +54,7 @@ spl_autoload_register(function ($class) {
  *
  * @package TypechoPay
  * @author mantou
- * @version 0.4.8
+ * @version 0.4.9
  * @link https://github.com/
  */
 class Plugin implements PluginInterface
@@ -295,6 +295,7 @@ class Plugin implements PluginInterface
                 .typechopay-editor-stat--ok{background:#e0f2fe;color:#0369a1}
                 .typechopay-editor-stat--sold{background:#ffe4e6;color:#be123c}
                 .typechopay-editor-import textarea{width:100%;min-height:126px}
+                .typechopay-card-submit-row{display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin:12px 0 0}
                 .typechopay-editor-cards{width:100%;margin-top:10px;border-collapse:collapse}
                 .typechopay-editor-cards th,.typechopay-editor-cards td{padding:7px 8px;border:1px solid #e5e7eb;text-align:left}
                 .typechopay-editor-muted{color:#6b7280}
@@ -407,6 +408,10 @@ class Plugin implements PluginInterface
                             <input type="text" name="typechopay_card_batch_name" value="" placeholder="<?php _e('可留空'); ?>" style="width:220px;margin-left:8px;">
                         </p>
                         <textarea name="typechopay_card_lines" placeholder="<?php _e('支持：卡号----卡密、卡号|卡密、Tab 分隔或单独兑换码。'); ?>"></textarea>
+                        <p class="typechopay-card-submit-row">
+                            <button type="submit" name="do" value="save" class="btn primary" id="typechopay-card-import-submit"><?php _e('确认提交'); ?></button>
+                            <small class="typechopay-editor-muted"><?php _e('提交后会保存文章并导入卡密，页面刷新后回到卡密列表。'); ?></small>
+                        </p>
                     </div>
                 </div>
             </div>
@@ -457,6 +462,21 @@ class Plugin implements PluginInterface
                         }
                     });
                 }
+            }());
+            (function () {
+                var importButton = document.getElementById('typechopay-card-import-submit');
+                var lines = document.querySelector('textarea[name="typechopay_card_lines"]');
+                if (!importButton || !lines) {
+                    return;
+                }
+                importButton.addEventListener('click', function (event) {
+                    if (lines.value.replace(/\s+/g, '') !== '') {
+                        return;
+                    }
+                    event.preventDefault();
+                    lines.focus();
+                    window.alert('<?php echo addslashes(_t('请先粘贴卡密后再提交。')); ?>');
+                });
             }());
             </script>
         </section>

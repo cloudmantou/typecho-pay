@@ -56,6 +56,10 @@ ap_assert(strpos($pluginSource, 'name="typechopay_currency" value="CNY"') !== fa
 ap_assert(strpos($pluginSource, 'data-typechopay-card-tabs') !== false, 'Editor card management uses tabs');
 ap_assert(strpos($pluginSource, 'data-typechopay-card-tab="list"') !== false, 'Editor has card list tab');
 ap_assert(strpos($pluginSource, 'data-typechopay-card-tab="import"') !== false, 'Editor has card import tab');
+ap_assert(strpos($pluginSource, 'id="typechopay-card-import-submit"') !== false, 'Editor import tab has explicit submit button');
+ap_assert(strpos($pluginSource, '确认提交') !== false, 'Editor import submit button has clear label');
+ap_assert(strpos($pluginSource, 'name="do" value="save"') !== false, 'Editor import submit saves the article without forcing publish');
+ap_assert(strpos($pluginSource, '请先粘贴卡密后再提交') !== false, 'Editor import submit guards empty card input');
 ap_assert(strpos($pluginSource, 'min="0.01"') !== false, 'Editor amount input accepts 0.01 yuan minimum');
 ap_assert(strpos($pluginSource, 'assertCnyYuanAmount') !== false, 'Editor saves yuan input as CNY fen');
 ap_assert(strpos($pluginSource, 'PayPay') === false, 'Plugin config and frontend paths no longer expose PayPay');
