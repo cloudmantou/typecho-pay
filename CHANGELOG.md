@@ -2,6 +2,13 @@
 
 ## Unreleased
 
+## 0.4.7 - 2026-06-27
+
+### Alipay runtime
+
+- Fixed the Alipay SDK loader so it resolves Composer vendor files from the TypechoPay plugin root instead of the parent plugins directory.
+- Added a regression check for the SDK vendor path used by sandbox and production Alipay requests.
+
 ## 0.4.6 - 2026-06-27
 
 ### Alipay sandbox

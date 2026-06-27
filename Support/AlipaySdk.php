@@ -24,8 +24,8 @@ final class AlipaySdk
     private static function requireFile(string $relativePath): void
     {
         $roots = [
-            dirname(__DIR__, 2) . '/vendor/alipaysdk/openapi/v2/aop',
-            dirname(__DIR__, 2) . '/vendor/alipay/alipay-sdk-php-all/v2/aop',
+            dirname(__DIR__) . '/vendor/alipaysdk/openapi/v2/aop',
+            dirname(__DIR__) . '/vendor/alipay/alipay-sdk-php-all/v2/aop',
         ];
 
         foreach ($roots as $root) {

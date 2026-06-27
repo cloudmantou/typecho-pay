@@ -2,6 +2,28 @@
 
 Date: 2026-06-25
 
+## 2026-06-27 Alipay SDK Loader Fix (v0.4.7)
+
+### Change
+
+Fixed the Alipay runtime path discovered during live sandbox testing on the Typecho server.
+
+### Scope
+
+- Corrected `Support/AlipaySdk.php` so SDK files are loaded from `TypechoPay/vendor/...`.
+- Added a static regression check to catch accidental fallback to `usr/plugins/vendor/...`.
+- Kept the sandbox gateway setting from v0.4.6 unchanged.
+
+### Verification
+
+Run after pulling this change:
+
+```sh
+composer install --no-dev --prefer-dist --no-interaction --no-progress
+find . -path './vendor' -prune -o -name '*.php' -print0 | xargs -0 -n1 php -l
+for test in tests/*Test.php; do php "$test"; done
+```
+
 ## 2026-06-27 Alipay Sandbox Gateway Configuration (v0.4.6)
 
 ### Change
