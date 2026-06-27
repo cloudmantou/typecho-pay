@@ -136,13 +136,25 @@ TypechoPay
 [typechopay_shop category_slug="yingyong"]
 ```
 
-主题文章列表可调用角标 helper：
+主题文章列表可调用角标 helper，把它放在列表卡片标题或缩略图区域：
 
 ```php
-<?php echo \TypechoPlugin\TypechoPay\Plugin::renderPostBadge($this); ?>
+<?php if (class_exists('\TypechoPlugin\TypechoPay\Plugin')): ?>
+    <?php echo \TypechoPlugin\TypechoPay\Plugin::renderPostBadge($this); ?>
+<?php endif; ?>
 ```
 
 需要自定义角标时，可在当前主题中放置 `typechopay/post-badge.php`。
+
+如果你的主题文章详情页没有走 Typecho 的正文插件渲染链路，自动插入和短代码可能不会生效。可以在主题的文章详情模板中显式调用：
+
+```php
+<?php if (class_exists('\TypechoPlugin\TypechoPay\Plugin')): ?>
+    <?php echo \TypechoPlugin\TypechoPay\Plugin::renderArticleProductPanel($this); ?>
+<?php endif; ?>
+```
+
+默认前台样式可以在插件设置里关闭。关闭后插件不会输出 `assets/typechopay.css`，主题可以通过自己的 CSS 或 `usr/themes/当前主题/typechopay/style.css` 完全接管展示。
 
 8. 用户点击支付时，系统先从 `available` 库存中条件更新预留一张卡密为 `reserved`，预留 30 分钟。同一买家、同一商品、同一网关的未过期活动订单会被复用，不会重复创建支付平台订单。
 9. 支付成功后，`FulfillmentManager` 把同一张预留卡密标记为 `delivered`。即使卡密交付暂时失败，支付确认和 ACK 仍会成功，不会导致支付平台重复回调。

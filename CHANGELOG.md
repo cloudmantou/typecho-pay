@@ -2,6 +2,20 @@
 
 ## Unreleased
 
+## 0.4.4 - 2026-06-27
+
+### Theme integration
+
+- Added `Plugin::renderArticleProductPanel($archive)` so themes that do not run Typecho's content plugin chain can explicitly render the bound article product panel.
+- Changed frontend CSS loading from direct `echo` to HTML returned with rendered TypechoPay UI, and added a plugin setting to disable the default frontend CSS.
+- Added admin-only hidden diagnostics for auto-injection failures: auto-inject disabled, missing bound product, and paused product.
+
+### Article editor
+
+- The article editor now shows bound product ID, product status, stock summary, and the current auto-insert setting.
+- The editor defaults toward inserting `[typechopay_product]` when saving an enabled paid mode, reducing theme compatibility issues when global auto-injection is disabled.
+- Clarified that article-editor card pasting is for small additions and formal batch import should use the inventory/product management flow.
+
 ## 0.4.3 - 2026-06-27
 
 ### Article products

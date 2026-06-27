@@ -2,6 +2,35 @@
 
 Date: 2026-06-25
 
+## 2026-06-27 Theme Integration and Editor Diagnostics (v0.4.4)
+
+### Change
+
+Improved the article-as-product flow for themes that do not use Typecho's normal content rendering chain, and made article-editor/card diagnostics more operator friendly.
+
+### Scope
+
+- Added `Plugin::renderArticleProductPanel($archive)` as an explicit theme helper for article detail templates.
+- Added admin-only hidden HTML diagnostics for common auto-injection misses: auto-inject disabled, no product bound to the current content id, and paused products.
+- Replaced direct CSS `echo` with a `shopCssLink()` helper that returns the stylesheet link with rendered UI HTML.
+- Added `loadFrontendCss` plugin config so themes can fully own frontend styling.
+- Added editor status chips for bound product ID, product status, current stock, and auto-insert position.
+- Kept article-editor pasted card import positioned as a small quick-add path; formal batch imports remain in the product/inventory management flow.
+
+### Boundary
+
+This change does not modify arbitrary themes automatically. Themes should add `Plugin::renderPostBadge($this)` in article-list cards and `Plugin::renderArticleProductPanel($this)` in article detail templates only where the theme needs explicit integration.
+
+### Verification
+
+Run after pulling this change:
+
+```sh
+composer validate --no-check-lock --strict
+find . -path './vendor' -prune -o -name '*.php' -print0 | xargs -0 -n1 php -l
+for test in tests/*Test.php; do php "$test"; done
+```
+
 ## 2026-06-27 Article Product Display and Typecho Category Alignment (v0.4.3)
 
 ### Change

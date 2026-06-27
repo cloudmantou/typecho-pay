@@ -54,7 +54,7 @@ spl_autoload_register(function ($class) {
  *
  * @package TypechoPay
  * @author mantou
- * @version 0.4.3
+ * @version 0.4.4
  * @link https://github.com/
  */
 class Plugin implements PluginInterface
@@ -168,6 +168,18 @@ class Plugin implements PluginInterface
         );
         $form->addInput($productAutoInjectPosition);
 
+        $loadFrontendCss = new Select(
+            'loadFrontendCss',
+            [
+                '1' => '开启 - 加载插件默认前台样式',
+                '0' => '关闭 - 由主题完全接管样式',
+            ],
+            '1',
+            _t('加载默认前台样式'),
+            _t('关闭后插件不再输出 assets/typechopay.css；适合主题已通过 typechopay/style.css 或自定义 CSS 完全覆盖前台展示。')
+        );
+        $form->addInput($loadFrontendCss);
+
         // ============================================================
         // PayPay 配置
         // ============================================================
@@ -260,11 +272,22 @@ class Plugin implements PluginInterface
         $coverUrl = $product ? (string) ($product['cover_url'] ?? '') : '';
         $productKey = $product ? (string) ($product['product_key'] ?? '') : '';
         $containsShortcode = is_string($content->text ?? null) && self::containsExplicitProductUiShortcode((string) $content->text);
-        $shouldInsert = !$containsShortcode && $mode !== 'off';
+        $shouldInsert = !$containsShortcode;
         $cardStats = ($productId > 0 && $hasCardcode) ? self::articleCardStats($productId) : null;
         $recentCards = ($productId > 0 && $hasCardcode) ? self::recentArticleCards($productId, 8) : [];
 
         $options = Options::alloc();
+        $config = self::pluginConfig($options);
+        $autoInjectLabel = [
+            'off' => _t('关闭'),
+            'top' => _t('正文顶部'),
+            'bottom' => _t('正文底部'),
+            'after_first_paragraph' => _t('第一段之后'),
+        ][$config['productAutoInjectPosition']] ?? _t('关闭');
+        $productStatus = $product ? (string) ($product['status'] ?? '-') : _t('未创建');
+        $stockText = $cardStats
+            ? _t('可用 %d / 预留 %d / 已售 %d', (int) $cardStats['available'], (int) $cardStats['reserved'], (int) $cardStats['delivered'])
+            : _t('保存卡密商品后显示');
         $productsUrl = $options->adminUrl . 'extending.php?panel=TypechoPay%2Fmanage%2Fproducts.php';
         $inventoryUrl = $options->adminUrl . 'extending.php?panel=TypechoPay%2Fmanage%2Fcard-inventory.php';
         $salesUrl = $options->adminUrl . 'extending.php?panel=TypechoPay%2Fmanage%2Fcard-sales.php';
@@ -287,6 +310,8 @@ class Plugin implements PluginInterface
                 .typechopay-editor-grid label{display:block;font-weight:600;margin-bottom:4px}
                 .typechopay-editor-grid input,.typechopay-editor-grid select{max-width:100%}
                 .typechopay-editor-actions{display:flex;gap:10px;flex-wrap:wrap;margin-top:12px}
+                .typechopay-editor-meta{display:flex;gap:8px;flex-wrap:wrap;margin:10px 0 14px}
+                .typechopay-editor-meta span{display:inline-flex;gap:5px;align-items:center;padding:4px 9px;border-radius:4px;background:#f3f4f6;color:#374151}
                 .typechopay-editor-cardbox{margin-top:16px;padding:14px;border:1px solid #e5e7eb;background:#fbfcfe}
                 .typechopay-editor-stats{display:flex;gap:8px;flex-wrap:wrap;margin:8px 0 14px}
                 .typechopay-editor-stat{display:inline-flex;gap:5px;align-items:center;padding:4px 9px;border-radius:4px;background:#eef2ff;color:#374151;font-weight:600}
@@ -303,6 +328,13 @@ class Plugin implements PluginInterface
                 <?php if ($product): ?><span class="typechopay-editor-muted"><?php echo htmlspecialchars($productKey); ?></span><?php endif; ?>
             </div>
             <div class="typechopay-editor-panel__body">
+                <div class="typechopay-editor-meta">
+                    <span><?php _e('绑定商品 ID'); ?>: <?php echo $productId > 0 ? (int) $productId : '-'; ?></span>
+                    <span><?php _e('商品状态'); ?>: <?php echo htmlspecialchars($productStatus); ?></span>
+                    <span><?php _e('当前库存'); ?>: <?php echo htmlspecialchars($stockText); ?></span>
+                    <span><?php _e('自动插入'); ?>: <?php echo htmlspecialchars($autoInjectLabel); ?></span>
+                    <?php if ($containsShortcode): ?><span><?php _e('正文已有购买短代码'); ?></span><?php endif; ?>
+                </div>
                 <div class="typechopay-editor-row">
                     <strong><?php _e('付费模式'); ?></strong>
                     <label><input type="radio" name="typechopay_pay_mode" value="off" <?php if ($mode === 'off') echo 'checked'; ?>> <?php _e('关闭'); ?></label>
@@ -337,7 +369,7 @@ class Plugin implements PluginInterface
 
                 <div class="typechopay-editor-row">
                     <label><input type="checkbox" name="typechopay_unlock_article" value="1" <?php if ($hasPostAccess || $mode === 'post_access') echo 'checked'; ?>> <?php _e('购买后解锁本文'); ?></label>
-                    <label><input type="checkbox" name="typechopay_insert_shortcode" value="1" <?php if ($shouldInsert) echo 'checked'; ?>> <?php _e('在正文显示购买模块'); ?></label>
+                    <label><input type="checkbox" name="typechopay_insert_shortcode" value="1" <?php if ($shouldInsert) echo 'checked'; ?>> <?php _e('保存付费模式时在正文插入 [typechopay_product]'); ?></label>
                     <?php if ($containsShortcode): ?><small class="typechopay-editor-muted"><?php _e('正文已包含 TypechoPay 购买短代码，不会重复插入。'); ?></small><?php endif; ?>
                 </div>
 
@@ -351,7 +383,7 @@ class Plugin implements PluginInterface
                             <?php if ((int) $cardStats['reserved'] > 0): ?><span class="typechopay-editor-stat"><?php _e('占用'); ?> <?php echo (int) $cardStats['reserved']; ?></span><?php endif; ?>
                         </div>
                     <?php else: ?>
-                        <p class="typechopay-editor-muted"><?php _e('选择“卡密管理”并保存文章后，会自动创建绑定商品。之后可以直接在这里粘贴卡密。'); ?></p>
+                        <p class="typechopay-editor-muted"><?php _e('选择“卡密管理”并保存文章后，会自动创建绑定商品。之后可以直接在这里粘贴少量卡密。批量导入请到商品管理或卡密库存页。'); ?></p>
                     <?php endif; ?>
 
                     <div class="typechopay-editor-import">
@@ -479,7 +511,7 @@ class Plugin implements PluginInterface
             return self::renderProductCardShortcode($attrs, $archive);
         }, $content);
 
-        return preg_replace_callback('/\[typechopay\s+([^\]]+)\]/i', function ($matches) use ($archive) {
+        $content = preg_replace_callback('/\[typechopay\s+([^\]]+)\]/i', function ($matches) use ($archive) {
             $attrs = self::parseShortcodeAttrs($matches[1]);
             $options = Options::alloc();
             $config = self::pluginConfig($options);
@@ -494,25 +526,29 @@ class Plugin implements PluginInterface
                     'biz_id' => $bizId,
                 ]);
             } catch (\Throwable $e) {
-                return '<p class="typechopay-error">' . htmlspecialchars($e->getMessage()) . '</p>';
+                return self::shopCssLink($config)
+                    . '<p class="typechopay-error">' . htmlspecialchars($e->getMessage()) . '</p>';
             }
 
             $currency = (string) $product['currency'];
             $gateways = self::normalizeGateways($attrs['gateways'] ?? implode(',', $config['enabledGateways']));
             $gateways = array_values(array_intersect($gateways, $config['enabledGateways']));
             if (!$gateways) {
-                return '<p class="typechopay-error">' . htmlspecialchars(_t('没有可用支付方式')) . '</p>';
+                return self::shopCssLink($config)
+                    . '<p class="typechopay-error">' . htmlspecialchars(_t('没有可用支付方式')) . '</p>';
             }
             $gateways = array_values(array_filter($gateways, function ($gateway) use ($currency) {
                 return self::gatewaySupportsCurrency($gateway, $currency);
             }));
             if (!$gateways) {
-                return '<p class="typechopay-error">' . htmlspecialchars(_t('当前币种没有可用支付方式')) . '</p>';
+                return self::shopCssLink($config)
+                    . '<p class="typechopay-error">' . htmlspecialchars(_t('当前币种没有可用支付方式')) . '</p>';
             }
 
             if (($product['purchase_policy'] ?? 'once') === 'once'
                 && self::currentVisitorHasPurchased($product)) {
-                return '<div class="typechopay-owned">' . htmlspecialchars(_t('已购买')) . '</div>';
+                return self::shopCssLink($config)
+                    . '<div class="typechopay-owned">' . htmlspecialchars(_t('已购买')) . '</div>';
             }
 
             $returnTo = self::archiveReturnTo($archive, $options);
@@ -520,6 +556,40 @@ class Plugin implements PluginInterface
 
             return self::renderPayBox($product, $entryPayload, $gateways, $options, $config);
         }, $content);
+
+        return $content;
+    }
+
+    /**
+     * Render the current article's bound product panel for themes that do not use contentEx.
+     *
+     * Theme usage: echo \TypechoPlugin\TypechoPay\Plugin::renderArticleProductPanel($this);
+     *
+     * @param object|null $archive
+     */
+    public static function renderArticleProductPanel($archive = null): string
+    {
+        if (!is_object($archive)) {
+            return '';
+        }
+
+        $cid = self::archiveContentId($archive);
+        if ($cid <= 0) {
+            return '';
+        }
+
+        $product = self::findProductByContentId($cid);
+        if (!$product) {
+            return self::adminDiagnosticComment('no product found for content_id=' . $cid);
+        }
+
+        if ((string) ($product['status'] ?? '') !== 'active') {
+            return self::adminDiagnosticComment('product paused');
+        }
+
+        $options = Options::alloc();
+        $config = self::pluginConfig($options);
+        return self::renderProductPanelHtml($product, $archive, $options, $config);
     }
 
     /**
@@ -545,9 +615,9 @@ class Plugin implements PluginInterface
             return '';
         }
 
-        self::enqueueShopCss();
         $options = Options::alloc();
         $config = self::pluginConfig($options);
+        $css = self::shopCssLink($config);
         $stats = self::productDisplayStats($product);
         $state = self::productDisplayState($product, $stats, $config);
         $templateData = [
@@ -558,14 +628,14 @@ class Plugin implements PluginInterface
         ];
         $themed = self::renderThemeTemplate('post-badge', $templateData);
         if ($themed !== null) {
-            return $themed;
+            return $css . $themed;
         }
 
         $typeLabel = ((string) ($product['stock_policy'] ?? 'none') === 'reserve_on_order') ? _t('自动售卡') : _t('付费内容');
         $price = Support\Money::formatForDisplay((int) $product['amount'], (string) ($product['currency'] ?? 'CNY'));
         $stock = (string) ($stats['stock_text'] ?? '');
 
-        return '<span class="typechopay-post-badge typechopay-status--' . htmlspecialchars((string) $state['status']) . '">'
+        return $css . '<span class="typechopay-post-badge typechopay-status--' . htmlspecialchars((string) $state['status']) . '">'
             . '<span class="typechopay-post-badge__label">' . htmlspecialchars($typeLabel) . '</span>'
             . '<strong class="typechopay-post-badge__price">' . htmlspecialchars($price) . '</strong>'
             . ($stock !== '' ? '<span class="typechopay-post-badge__stock">' . htmlspecialchars($stock) . '</span>' : '')
@@ -587,6 +657,7 @@ class Plugin implements PluginInterface
             'productAutoInjectPosition' => self::normalizeAutoInjectPosition(
                 (string) ($plugin->productAutoInjectPosition ?? 'off')
             ),
+            'loadFrontendCss' => (string) ($plugin->loadFrontendCss ?? '1') !== '0',
             'paypayEnvironment' => (string) ($plugin->paypayEnvironment ?? 'sandbox'),
             'paypayApiKey' => (string) ($plugin->paypayApiKey ?? ''),
             'paypayApiSecret' => (string) ($plugin->paypayApiSecret ?? ''),
@@ -621,9 +692,10 @@ class Plugin implements PluginInterface
      */
     private static function renderShopShortcode(array $attrs): string
     {
-        self::enqueueShopCss();
-
         $db = Db::get();
+        $options = Options::alloc();
+        $config = self::pluginConfig($options);
+        $css = self::shopCssLink($config);
         $categorySlug = trim((string) ($attrs['category'] ?? ''));
         $columns = max(1, min(6, (int) ($attrs['columns'] ?? 3)));
         $limit = max(1, min(100, (int) ($attrs['limit'] ?? 20)));
@@ -646,7 +718,7 @@ class Plugin implements PluginInterface
             if ($cat) {
                 $select->where('category_id = ?', (int) $cat['id']);
             } else {
-                return '<div class="typechopay-shop"><p class="typechopay-shop__empty">' . htmlspecialchars(_t('商城专题不存在')) . '</p></div>';
+                return $css . '<div class="typechopay-shop"><p class="typechopay-shop__empty">' . htmlspecialchars(_t('商城专题不存在')) . '</p></div>';
             }
         }
 
@@ -656,14 +728,14 @@ class Plugin implements PluginInterface
 
         if ($typechoCategoryContentIds !== null) {
             if (!$typechoCategoryContentIds) {
-                return '<div class="typechopay-shop"><p class="typechopay-shop__empty">' . htmlspecialchars(_t('暂无商品')) . '</p></div>';
+                return $css . '<div class="typechopay-shop"><p class="typechopay-shop__empty">' . htmlspecialchars(_t('暂无商品')) . '</p></div>';
             }
             $select->where('content_id IN ?', $typechoCategoryContentIds);
         }
 
         $products = $db->fetchAll($select);
         if (!$products) {
-            return '<div class="typechopay-shop"><p class="typechopay-shop__empty">' . htmlspecialchars(_t('暂无商品')) . '</p></div>';
+            return $css . '<div class="typechopay-shop"><p class="typechopay-shop__empty">' . htmlspecialchars(_t('暂无商品')) . '</p></div>';
         }
 
         // Load categories for display.
@@ -678,22 +750,19 @@ class Plugin implements PluginInterface
         $templateData = compact('products', 'categories', 'typechoCategories', 'columns', 'categorySlug', 'attrs');
         $themed = self::renderThemeTemplate('shop', $templateData);
         if ($themed !== null) {
-            return $themed;
+            return $css . $themed;
         }
 
         // Default template.
         $html = '<div class="typechopay-shop">';
         $html .= '<div class="typechopay-shop__grid" style="display:grid;grid-template-columns:repeat(' . $columns . ',1fr);gap:20px;">';
 
-        $options = Options::alloc();
-        $config = self::pluginConfig($options);
-
         foreach ($products as $product) {
             $html .= self::renderProductCardHtml($product, $categories, $options, $config, $typechoCategories);
         }
 
         $html .= '</div></div>';
-        return $html;
+        return $css . $html;
     }
 
     /**
@@ -701,11 +770,12 @@ class Plugin implements PluginInterface
      */
     private static function renderProductCardShortcode(array $attrs, $archive = null): string
     {
-        self::enqueueShopCss();
-
         $productKey = trim((string) ($attrs['product'] ?? ''));
 
         $db = Db::get();
+        $options = Options::alloc();
+        $config = self::pluginConfig($options);
+        $css = self::shopCssLink($config);
         if ($productKey !== '') {
             $product = $db->fetchRow(
                 $db->select()->from('table.pay_products')
@@ -719,13 +789,11 @@ class Plugin implements PluginInterface
         }
 
         if (!$product) {
-            return '<p class="typechopay-error">' . htmlspecialchars(_t('商品不存在、未绑定当前文章或已下架')) . '</p>';
+            return $css . '<p class="typechopay-error">' . htmlspecialchars(_t('商品不存在、未绑定当前文章或已下架')) . '</p>';
         }
 
         $categories = self::activeProductCategories();
         $typechoCategories = self::typechoCategoryLabelsForProducts([$product]);
-        $options = Options::alloc();
-        $config = self::pluginConfig($options);
         $stats = self::productDisplayStats($product);
         $state = self::productDisplayState($product, $stats, $config);
 
@@ -740,10 +808,10 @@ class Plugin implements PluginInterface
         ];
         $themed = self::renderThemeTemplate('product-card', $templateData);
         if ($themed !== null) {
-            return $themed;
+            return $css . $themed;
         }
 
-        return '<div class="typechopay-shop">'
+        return $css . '<div class="typechopay-shop">'
             . self::renderProductCardHtml($product, $categories, $options, $config, $typechoCategories)
             . '</div>';
     }
@@ -756,19 +824,23 @@ class Plugin implements PluginInterface
 
         $options = Options::alloc();
         $config = self::pluginConfig($options);
-        $position = $config['productAutoInjectPosition'];
-        if ($position === 'off') {
-            return $content;
-        }
-
         $cid = self::archiveContentId($archive);
         if ($cid <= 0) {
             return $content;
         }
 
-        $product = self::findActiveProductByContentId($cid);
+        $position = $config['productAutoInjectPosition'];
+        if ($position === 'off') {
+            return $content . self::adminDiagnosticComment('auto inject off');
+        }
+
+        $product = self::findProductByContentId($cid);
         if (!$product) {
-            return $content;
+            return $content . self::adminDiagnosticComment('no product found for content_id=' . $cid);
+        }
+
+        if ((string) ($product['status'] ?? '') !== 'active') {
+            return $content . self::adminDiagnosticComment('product paused');
         }
 
         $panel = self::renderProductPanelHtml($product, $archive, $options, $config);
@@ -790,8 +862,7 @@ class Plugin implements PluginInterface
 
     private static function renderProductPanelHtml(array $product, $archive, Options $options, array $config): string
     {
-        self::enqueueShopCss();
-
+        $css = self::shopCssLink($config);
         $categories = self::activeProductCategories();
         $stats = self::productDisplayStats($product);
         $state = self::productDisplayState($product, $stats, $config);
@@ -807,7 +878,7 @@ class Plugin implements PluginInterface
         ];
         $themed = self::renderThemeTemplate('product-panel', $templateData);
         if ($themed !== null) {
-            return $themed;
+            return $css . $themed;
         }
 
         $pid = (int) $product['id'];
@@ -841,7 +912,7 @@ class Plugin implements PluginInterface
             $state
         );
 
-        return '<section class="typechopay-product-panel typechopay-status--' . htmlspecialchars($state['status']) . '" data-product-id="' . $pid . '">'
+        return $css . '<section class="typechopay-product-panel typechopay-status--' . htmlspecialchars($state['status']) . '" data-product-id="' . $pid . '">'
             . $coverHtml
             . '<div class="typechopay-product-panel__main">'
             . '<div class="typechopay-product-panel__label">' . htmlspecialchars($typeLabel) . '</div>'
@@ -1489,6 +1560,21 @@ class Plugin implements PluginInterface
         return $row ?: null;
     }
 
+    private static function adminDiagnosticComment(string $message): string
+    {
+        try {
+            $user = User::alloc();
+            if (!$user->hasLogin() || !$user->pass('administrator', true)) {
+                return '';
+            }
+        } catch (\Throwable $e) {
+            return '';
+        }
+
+        $message = str_replace(['--', '<', '>'], ['-', '', ''], $message);
+        return "\n<!-- TypechoPay: " . $message . " -->";
+    }
+
     private static function productDeliverableHandlers(int $productId): array
     {
         if ($productId <= 0) {
@@ -1539,13 +1625,18 @@ class Plugin implements PluginInterface
     }
 
     /**
-     * Enqueue the default shop CSS if not already loaded.
+     * Return the default frontend CSS link once per request.
      */
-    private static function enqueueShopCss(): void
+    private static function shopCssLink(?array $config = null): string
     {
+        $config = $config ?? self::pluginConfig(Options::alloc());
+        if (empty($config['loadFrontendCss'])) {
+            return '';
+        }
+
         static $loaded = false;
         if ($loaded) {
-            return;
+            return '';
         }
         $loaded = true;
 
@@ -1559,7 +1650,7 @@ class Plugin implements PluginInterface
             $cssUrl = Common::url('usr/themes/' . $options->theme . '/typechopay/style.css', $options->siteUrl);
         }
 
-        echo '<link rel="stylesheet" href="' . htmlspecialchars($cssUrl) . '">' . "\n";
+        return '<link rel="stylesheet" href="' . htmlspecialchars($cssUrl) . '">' . "\n";
     }
 
     private static function renderPayBox(array $display, array $entryPayload, array $gateways, Options $options, array $config): string
@@ -1588,7 +1679,8 @@ class Plugin implements PluginInterface
                 . '<button type="submit">' . htmlspecialchars($labels[$gateway] ?? $gateway) . '</button></form>';
         }
 
-        return '<div class="typechopay-box" data-typechopay="1">'
+        return self::shopCssLink($config)
+            . '<div class="typechopay-box" data-typechopay="1">'
             . '<strong>' . htmlspecialchars((string) $display['subject']) . '</strong>'
             . '<span class="typechopay-amount">' . htmlspecialchars(Support\Money::formatForDisplay((int) $display['amount'], (string) $display['currency'])) . '</span>'
             . implode('', $buttons)
@@ -1608,7 +1700,8 @@ class Plugin implements PluginInterface
                 return $matches[2];
             }
 
-            return '<div class="typechopay-locked">' . htmlspecialchars(_t('此内容需要购买后查看。')) . '</div>';
+            return self::shopCssLink()
+                . '<div class="typechopay-locked">' . htmlspecialchars(_t('此内容需要购买后查看。')) . '</div>';
         }, $content);
     }
 

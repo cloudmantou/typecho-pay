@@ -35,6 +35,7 @@ ap_assert(strpos($pluginSource, 'function autoInjectProductPanel') !== false, 'P
 ap_assert(strpos($pluginSource, 'function containsExplicitProductUiShortcode') !== false, 'Auto inject ignores protected-content-only shortcodes');
 ap_assert(strpos($pluginSource, 'function findActiveProductByContentId') !== false, 'Plugin can find product by article cid');
 ap_assert(strpos($pluginSource, 'function renderProductPanelHtml') !== false, 'Plugin renders article product panel');
+ap_assert(strpos($pluginSource, 'function renderArticleProductPanel') !== false, 'Plugin exposes theme article product panel helper');
 ap_assert(strpos($pluginSource, 'function renderPostBadge') !== false, 'Plugin exposes theme post badge helper');
 ap_assert(strpos($pluginSource, 'function renderArticlePayPanel') !== false, 'Plugin renders article editor panel');
 ap_assert(strpos($pluginSource, 'function injectArticleProductShortcode') !== false, 'Plugin can insert product shortcode while saving article');
@@ -55,6 +56,14 @@ ap_assert(strpos($pluginSource, 'typechoCategoryContentIdsFromShopAttrs') !== fa
 ap_assert(strpos($pluginSource, 'typechoCategoryLabelsForProducts') !== false, 'Product cards can show Typecho article categories');
 ap_assert(strpos($pluginSource, 'category_slug') !== false, 'Shop shortcode supports Typecho category slug');
 ap_assert(strpos($pluginSource, 'typecho_category') !== false, 'Shop shortcode supports Typecho category name');
+ap_assert(strpos($pluginSource, 'loadFrontendCss') !== false, 'Plugin can disable default frontend CSS');
+ap_assert(strpos($pluginSource, 'function shopCssLink') !== false, 'Frontend CSS is returned with rendered HTML');
+ap_assert(strpos($pluginSource, 'function enqueueShopCss') === false, 'Frontend CSS is not echoed directly');
+ap_assert(strpos($pluginSource, 'function adminDiagnosticComment') !== false, 'Plugin has admin-only diagnostics');
+ap_assert(strpos($pluginSource, 'TypechoPay: ') !== false, 'Admin diagnostics use TypechoPay comment prefix');
+ap_assert(strpos($pluginSource, 'auto inject off') !== false, 'Auto inject reports off state to admins');
+ap_assert(strpos($pluginSource, 'no product found for content_id=') !== false, 'Auto inject reports missing bound product to admins');
+ap_assert(strpos($pluginSource, 'product paused') !== false, 'Auto inject reports paused products to admins');
 ap_assert(strpos($pluginSource, 'typechopay_product(?:\\s+') !== false, 'typechopay_product shortcode supports empty attrs');
 ap_assert(strpos($pluginSource, 'product-panel') !== false, 'Theme can override product-panel template');
 ap_assert(strpos($pluginSource, 'post-badge') !== false, 'Theme can override post-badge template');
@@ -68,6 +77,11 @@ ap_assert(strpos($cssSource, '--typechopay-primary') !== false, 'CSS exposes Typ
 ap_assert(strpos($productsSource, '商城专题') !== false, 'Admin labels TypechoPay categories as shop topics');
 ap_assert(strpos($productsSource, '绑定文章') !== false, 'Admin shows bound article information');
 ap_assert(strpos($productsSource, '$boundContentCategories') !== false, 'Admin shows bound article categories');
+ap_assert(strpos($pluginSource, '绑定商品 ID') !== false, 'Editor shows bound product id');
+ap_assert(strpos($pluginSource, '商品状态') !== false, 'Editor shows product status');
+ap_assert(strpos($pluginSource, '当前库存') !== false, 'Editor shows current stock summary');
+ap_assert(strpos($pluginSource, '自动插入') !== false, 'Editor shows auto-insert status');
+ap_assert(strpos($pluginSource, '保存付费模式时在正文插入 [typechopay_product]') !== false, 'Editor defaults toward shortcode insertion');
 
 echo "\n\n--- ArticleProductTest ---\n";
 echo "Passed: {$passed}\n";
