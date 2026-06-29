@@ -67,7 +67,40 @@ final class GuestToken
 
     private static function isHttps(): bool
     {
-        return (!empty($_SERVER['HTTPS']) && strtolower((string) $_SERVER['HTTPS']) !== 'off')
-            || (isset($_SERVER['HTTP_X_FORWARDED_PROTO']) && strtolower((string) $_SERVER['HTTP_X_FORWARDED_PROTO']) === 'https');
+        $https = strtolower(trim((string) ($_SERVER['HTTPS'] ?? '')));
+        if ($https !== '' && $https !== 'off') {
+            return true;
+        }
+
+        $requestScheme = strtolower(trim((string) ($_SERVER['REQUEST_SCHEME'] ?? '')));
+        if ($requestScheme === 'https') {
+            return true;
+        }
+
+        if ((string) ($_SERVER['SERVER_PORT'] ?? '') === '443') {
+            return true;
+        }
+
+        $forwardedProto = strtolower(trim(explode(',', (string) ($_SERVER['HTTP_X_FORWARDED_PROTO'] ?? ''))[0]));
+        if ($forwardedProto === 'https') {
+            return true;
+        }
+
+        $forwardedScheme = strtolower(trim((string) ($_SERVER['HTTP_X_FORWARDED_SCHEME'] ?? $_SERVER['HTTP_X_URL_SCHEME'] ?? '')));
+        if ($forwardedScheme === 'https') {
+            return true;
+        }
+
+        $forwardedSsl = strtolower(trim((string) ($_SERVER['HTTP_X_FORWARDED_SSL'] ?? '')));
+        if (in_array($forwardedSsl, ['on', '1', 'true'], true)) {
+            return true;
+        }
+
+        if ((string) ($_SERVER['HTTP_X_FORWARDED_PORT'] ?? '') === '443') {
+            return true;
+        }
+
+        $forwarded = (string) ($_SERVER['HTTP_FORWARDED'] ?? '');
+        return preg_match('/(?:^|[;,]\s*)proto="?https"?/i', $forwarded) === 1;
     }
 }

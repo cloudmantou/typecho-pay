@@ -2,6 +2,19 @@
 
 ## Unreleased
 
+### Security hardening
+
+- Kept order rate limiting active when the client IP cannot be resolved by falling back to a shared unknown-client scope.
+- Switched TypechoPay action/event IP capture to Typecho's request IP helper instead of reading `REMOTE_ADDR` directly.
+- Hardened guest token secure-cookie detection behind common HTTPS-terminating reverse proxies.
+- Replaced payment-create exception message matching with a typed gateway configuration exception.
+
+### Maintenance
+
+- Removed the unused non-atomic return-token verifier and unused fulfillment handler contract.
+- Reworked card stock counting to use the Typecho query builder.
+- Replaced theme-template `extract()` usage with an isolated renderer.
+
 ## 0.4.22 - 2026-06-29
 
 ### Article product display

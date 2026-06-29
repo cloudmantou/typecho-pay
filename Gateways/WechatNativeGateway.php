@@ -5,6 +5,7 @@ namespace TypechoPlugin\TypechoPay\Gateways;
 use TypechoPlugin\TypechoPay\Contracts\GatewayInterface;
 use TypechoPlugin\TypechoPay\Contracts\NotifyResult;
 use TypechoPlugin\TypechoPay\Contracts\PayCreateResult;
+use TypechoPlugin\TypechoPay\Support\GatewayConfigurationException;
 use TypechoPlugin\TypechoPay\Support\HttpHeaders;
 
 if (!defined('__TYPECHO_ROOT_DIR__')) {
@@ -21,7 +22,7 @@ final class WechatNativeGateway extends AbstractGateway implements GatewayInterf
         }
 
         if (!class_exists('\\WeChatPay\\Builder') || !class_exists('\\WeChatPay\\Crypto\\Rsa')) {
-            throw new \RuntimeException('Install wechatpay/wechatpay before creating WeChat Pay orders.');
+            throw new GatewayConfigurationException('Install wechatpay/wechatpay before creating WeChat Pay orders.');
         }
 
         $response = $this->client()->chain('v3/pay/transactions/native')->post([
@@ -170,7 +171,7 @@ final class WechatNativeGateway extends AbstractGateway implements GatewayInterf
     {
         $this->requireConfig(['wechatAppId', 'wechatMchId', 'wechatMerchantSerial', 'wechatPrivateKeyPath']);
         if (!class_exists('\\WeChatPay\\Builder') || !class_exists('\\WeChatPay\\Crypto\\Rsa')) {
-            throw new \RuntimeException('Install wechatpay/wechatpay before using WeChat Pay.');
+            throw new GatewayConfigurationException('Install wechatpay/wechatpay before using WeChat Pay.');
         }
 
         $privateKey = \WeChatPay\Crypto\Rsa::from('file://' . $this->config['wechatPrivateKeyPath'], \WeChatPay\Crypto\Rsa::KEY_TYPE_PRIVATE);

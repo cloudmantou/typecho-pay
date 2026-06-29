@@ -36,7 +36,7 @@ final class AlipaySdk
             }
         }
 
-        throw new \RuntimeException('Install alipaysdk/openapi before using Alipay.');
+        throw new GatewayConfigurationException('Install alipaysdk/openapi before using Alipay.');
     }
 
     private static function requireSdkFile(string $path): void

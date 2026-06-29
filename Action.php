@@ -13,6 +13,7 @@ use TypechoPlugin\TypechoPay\Services\NonceService;
 use TypechoPlugin\TypechoPay\Services\OrderService;
 use TypechoPlugin\TypechoPay\Services\ProductService;
 use TypechoPlugin\TypechoPay\Services\PurchasePolicyService;
+use TypechoPlugin\TypechoPay\Support\GatewayConfigurationException;
 use TypechoPlugin\TypechoPay\Support\GuestToken;
 use TypechoPlugin\TypechoPay\Support\HttpHeaders;
 use TypechoPlugin\TypechoPay\Support\Signer;
@@ -130,7 +131,7 @@ class Action extends BaseOptions implements ActionInterface
 
         // Rate-limit by IP to prevent inventory exhaustion.
         $orderService = new OrderService(Db::get());
-        $ip = $_SERVER['REMOTE_ADDR'] ?? '';
+        $ip = $this->clientIp();
         $orderService->assertRateLimit($ip);
         $orderService->cleanupRateLimits();
 
@@ -234,7 +235,7 @@ class Action extends BaseOptions implements ActionInterface
                 'provider_event_id' => $result->providerEventId,
                 'provider_event_type' => $result->providerEventType,
                 'platform_trade_no' => $result->platformTradeNo,
-                'remote_ip' => $_SERVER['REMOTE_ADDR'] ?? null,
+                'remote_ip' => $this->clientIp(),
                 'headers' => $headers,
             ]);
 
@@ -537,9 +538,10 @@ class Action extends BaseOptions implements ActionInterface
                 $html .= '<section class="card">'
                     . '<p><strong>卡号 / 兑换码</strong></p>'
                     . '<p class="value">' . htmlspecialchars((string) $card['code']) . '</p>';
-                if ($card['secret'] !== null && $card['secret'] !== '') {
+                $secret = $card['secret'] ?? null;
+                if ($secret !== null && $secret !== '') {
                     $html .= '<p><strong>卡密 / 密钥</strong></p>'
-                        . '<p class="value">' . htmlspecialchars((string) $card['secret']) . '</p>';
+                        . '<p class="value">' . htmlspecialchars((string) $secret) . '</p>';
                 }
                 $html .= '<p>交付时间：' . htmlspecialchars((string) ($card['delivered_at'] ?? '')) . '</p>'
                     . '</section>';
@@ -608,7 +610,7 @@ class Action extends BaseOptions implements ActionInterface
             'provider_event_id' => $result->providerEventId,
             'provider_event_type' => $result->providerEventType,
             'platform_trade_no' => $result->platformTradeNo,
-            'remote_ip' => $_SERVER['REMOTE_ADDR'] ?? null,
+            'remote_ip' => $this->clientIp(),
         ]);
 
         if ($result->isPaid()) {
@@ -654,6 +656,17 @@ class Action extends BaseOptions implements ActionInterface
         return strtolower($target['host']) === strtolower($site['host']) ? $returnTo : $fallback;
     }
 
+    private function clientIp(): string
+    {
+        try {
+            $ip = trim((string) $this->request->getIp());
+        } catch (\Throwable $e) {
+            $ip = '';
+        }
+
+        return $ip !== '' ? $ip : 'unknown';
+    }
+
     private function assertFreshPayload(array $payload): void
     {
         $ts = filter_var($payload['ts'] ?? null, FILTER_VALIDATE_INT);
@@ -695,14 +708,8 @@ class Action extends BaseOptions implements ActionInterface
 
     private function isDefiniteCreateFailure(\Throwable $e): bool
     {
-        if ($e instanceof \InvalidArgumentException) {
-            return true;
-        }
-
-        $message = $e->getMessage();
-        return strpos($message, 'Missing gateway config:') === 0
-            || strpos($message, 'Install ') === 0
-            || strpos($message, ' orders must use ') !== false;
+        return $e instanceof \InvalidArgumentException
+            || $e instanceof GatewayConfigurationException;
     }
 
     private function setNoStoreHeaders(): void

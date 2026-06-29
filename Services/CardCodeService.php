@@ -547,9 +547,10 @@ final class CardCodeService
         }
 
         $this->releaseExpiredReservations($productId);
-        $table = $this->quotedTable('pay_card_items');
         $rows = $this->db->fetchAll(
-            "SELECT status, COUNT(*) AS count_value FROM {$table} WHERE product_id = " . (int) $productId . " GROUP BY status"
+            $this->db->select('status', 'COUNT(*) AS count_value')->from('table.pay_card_items')
+                ->where('product_id = ?', $productId)
+                ->group('status')
         );
 
         foreach ($rows as $row) {
@@ -817,9 +818,10 @@ final class CardCodeService
         try {
             $card = $this->decryptRow($row);
             $row['code_display'] = $card['code'];
-            $row['secret_display'] = $card['secret'];
-            $row['card_display'] = $card['secret'] !== null && $card['secret'] !== ''
-                ? $card['code'] . ' ---- ' . $card['secret']
+            $secret = $card['secret'] ?? null;
+            $row['secret_display'] = $secret;
+            $row['card_display'] = $secret !== null && $secret !== ''
+                ? $card['code'] . ' ---- ' . $secret
                 : $card['code'];
         } catch (\Throwable $e) {
             $row['code_display'] = '[解密失败]';
@@ -838,16 +840,5 @@ final class CardCodeService
     private function keyMaterial(): string
     {
         return (string) Options::alloc()->secret;
-    }
-
-    private function quotedTable(string $table): string
-    {
-        $prefix = $this->db->getPrefix();
-        $adapter = strtolower($this->db->getAdapterName());
-        if (strpos($adapter, 'mysql') !== false || strpos($adapter, 'mysqli') !== false) {
-            return '`' . str_replace('`', '``', $prefix . $table) . '`';
-        }
-
-        return '"' . str_replace('"', '""', $prefix . $table) . '"';
     }
 }

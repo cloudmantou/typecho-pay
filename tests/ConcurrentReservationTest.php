@@ -80,9 +80,14 @@ tc_assert(strpos($orderServiceSource, 'RATE_LIMIT_MAX_PREPARES') !== false, 'Has
 tc_assert(strpos($orderServiceSource, "hash('sha256', \$scope . ':' . bin2hex(random_bytes(16)))") !== false, 'Rate-limit nonce hash stays 64 chars');
 tc_assert(strpos($orderServiceSource, 'quoteValue') === false, 'Rate limiting does not call Db::quoteValue');
 tc_assert(strpos($orderServiceSource, "select('COUNT(*) AS cnt')") !== false, 'Rate limiting uses query builder count');
+tc_assert(strpos($orderServiceSource, "if (\$ip === '')") === false, 'Empty IP does not bypass rate limiting');
+tc_assert(strpos($orderServiceSource, "\$normalized = 'unknown';") !== false, 'Empty IP falls back to shared unknown rate-limit scope');
+tc_assert(strpos($orderServiceSource, 'function rateLimitScope') !== false, 'Rate-limit scope is normalized before storage');
 
 $actionSource = file_get_contents($root . '/Action.php');
 tc_assert(strpos($actionSource, 'assertRateLimit') !== false, 'Action calls assertRateLimit');
+tc_assert(strpos($actionSource, '$this->request->getIp()') !== false, 'Action uses Typecho request IP helper');
+tc_assert(strpos($actionSource, 'REMOTE_ADDR') === false, 'Action does not read REMOTE_ADDR directly');
 
 // ---- Test 5: Plugin schema ----
 $pluginSource = file_get_contents($root . '/Plugin.php');

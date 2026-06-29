@@ -3,6 +3,7 @@
 namespace TypechoPlugin\TypechoPay\Services;
 
 use Typecho\Db;
+use Typecho\Request;
 
 if (!defined('__TYPECHO_ROOT_DIR__')) {
     exit;
@@ -72,7 +73,7 @@ final class GuestClaimService
                 'provider_event_id' => null,
                 'provider_event_type' => null,
                 'platform_trade_no' => null,
-                'remote_ip' => $_SERVER['REMOTE_ADDR'] ?? null,
+                'remote_ip' => $this->clientIp(),
                 'headers_json' => null,
                 'signature_ok' => 1,
                 'payload' => json_encode(['user_id' => $userId], JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES),
@@ -81,5 +82,16 @@ final class GuestClaimService
         } catch (\Throwable $e) {
             error_log('[TypechoPay] Failed to record guest claim event: ' . $e->getMessage());
         }
+    }
+
+    private function clientIp(): string
+    {
+        try {
+            $ip = trim((string) Request::getInstance()->getIp());
+        } catch (\Throwable $e) {
+            $ip = '';
+        }
+
+        return $ip !== '' ? $ip : 'unknown';
     }
 }

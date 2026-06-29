@@ -3,6 +3,7 @@
 namespace TypechoPlugin\TypechoPay\Gateways;
 
 use Typecho\Common;
+use TypechoPlugin\TypechoPay\Support\GatewayConfigurationException;
 use Widget\Options;
 
 if (!defined('__TYPECHO_ROOT_DIR__')) {
@@ -24,7 +25,7 @@ abstract class AbstractGateway
     {
         foreach ($keys as $key) {
             if (trim((string) ($this->config[$key] ?? '')) === '') {
-                throw new \RuntimeException('Missing gateway config: ' . $key);
+                throw new GatewayConfigurationException('Missing gateway config: ' . $key);
             }
         }
     }

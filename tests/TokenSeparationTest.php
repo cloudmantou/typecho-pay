@@ -86,10 +86,10 @@ if (preg_match('/public function create\(array \$order\).*?^    \}/ms', $wechatS
 }
 tt_assert(strpos($createMethod, 'poll_token') === false, 'WechatNativeGateway::create() does NOT use poll_token');
 
-// ---- Test 9: Verify OrderService has all three token methods ----
+// ---- Test 9: Verify OrderService exposes only atomic return-token consumption ----
 $orderServiceSource = file_get_contents($root . '/Services/OrderService.php');
 tt_assert(strpos($orderServiceSource, 'function verifyPollToken') !== false, 'OrderService has verifyPollToken');
-tt_assert(strpos($orderServiceSource, 'function verifyReturnToken') !== false, 'OrderService has verifyReturnToken');
+tt_assert(strpos($orderServiceSource, 'function verifyReturnToken') === false, 'OrderService does not expose non-atomic verifyReturnToken');
 tt_assert(strpos($orderServiceSource, 'function consumeReturnToken') !== false, 'OrderService has atomic consumeReturnToken');
 tt_assert(strpos($orderServiceSource, 'function verifyDeliveryToken') !== false, 'OrderService has verifyDeliveryToken');
 tt_assert(strpos($orderServiceSource, 'function rotateDeliveryToken') !== false, 'OrderService can rotate delivery tokens');

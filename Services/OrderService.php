@@ -61,12 +61,8 @@ final class OrderService
      */
     public function assertRateLimit(string $ip): void
     {
-        if ($ip === '') {
-            return;
-        }
-
         $this->cleanupRateLimits();
-        $scope = 'prepare:' . $ip;
+        $scope = $this->rateLimitScope($ip);
         $now = date('Y-m-d H:i:s');
         $expires = date('Y-m-d H:i:s', time() + self::RATE_LIMIT_WINDOW);
         $nonceHash = hash('sha256', $scope . ':' . bin2hex(random_bytes(16)));
@@ -98,6 +94,20 @@ final class OrderService
         if ($count > self::RATE_LIMIT_MAX_PREPARES) {
             throw new \InvalidArgumentException('Too many requests. Please try again later.');
         }
+    }
+
+    private function rateLimitScope(string $ip): string
+    {
+        $normalized = strtolower(trim($ip));
+        if ($normalized === '') {
+            $normalized = 'unknown';
+        }
+
+        if (strlen($normalized) > 56) {
+            $normalized = 'hash:' . substr(hash('sha256', $normalized), 0, 51);
+        }
+
+        return 'prepare:' . $normalized;
     }
 
     /**
@@ -547,28 +557,6 @@ final class OrderService
 
         $hash = (string) ($order['poll_token_hash'] ?? '');
         return $hash !== '' && hash_equals($hash, hash('sha256', $pollToken));
-    }
-
-    /**
-     * Verify a return token (one-time use, for payment platform redirect).
-     * Returns true only if the token is valid and has not been used yet.
-     */
-    public function verifyReturnToken(array $order, string $returnToken): bool
-    {
-        if (!preg_match('/^[a-f0-9]{64}$/', $returnToken)) {
-            return false;
-        }
-
-        if (!empty($order['return_token_used'])) {
-            return false;
-        }
-
-        if (empty($order['return_token_expires_at']) || strtotime((string) $order['return_token_expires_at']) <= time()) {
-            return false;
-        }
-
-        $hash = (string) ($order['return_token_hash'] ?? '');
-        return $hash !== '' && hash_equals($hash, hash('sha256', $returnToken));
     }
 
     /**

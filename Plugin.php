@@ -2159,19 +2159,44 @@ class Plugin implements PluginInterface
         $templateFile = $themeDir . '/' . $name . '.php';
 
         if (is_file($templateFile)) {
-            extract($data, EXTR_SKIP);
-            ob_start();
             try {
-                include $templateFile;
+                return self::renderTemplateFile($templateFile, $data);
             } catch (\Throwable $e) {
-                ob_end_clean();
                 error_log('[TypechoPay] Theme template error (' . $name . '): ' . $e->getMessage());
                 return null;
             }
-            return ob_get_clean();
         }
 
         return null;
+    }
+
+    private static function renderTemplateFile(string $templateFile, array $data): string
+    {
+        $renderer = static function () use ($templateFile, $data): string {
+            $reserved = [
+                'GLOBALS', '_SERVER', '_GET', '_POST', '_FILES', '_COOKIE', '_SESSION', '_REQUEST', '_ENV',
+                'this', 'templateFile', 'data', 'key', 'value', 'reserved',
+            ];
+
+            foreach ($data as $key => $value) {
+                if (is_string($key)
+                    && !in_array($key, $reserved, true)
+                    && preg_match('/^[A-Za-z_][A-Za-z0-9_]*$/', $key)) {
+                    ${$key} = $value;
+                }
+            }
+
+            ob_start();
+            try {
+                include $templateFile;
+                return (string) ob_get_clean();
+            } catch (\Throwable $e) {
+                ob_end_clean();
+                throw $e;
+            }
+        };
+
+        return $renderer();
     }
 
     /**
