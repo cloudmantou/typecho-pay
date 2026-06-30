@@ -27,6 +27,68 @@ if(!Utils::isPjax()){
     <?php $this->need('includes/banner.php'); ?>
 
     <div class="wrapper container <?php if($setting['indexStyle'] == 1) echo 'narrow'; else echo 'wide'; ?>">
+        <?php
+            $homeTitle = Helper::options()->title;
+            if ($setting['indexBannerTitle'] != '') {
+                $homeTitle = $setting['indexBannerTitle'];
+            }
+            $homeSubtitle = Helper::options()->description;
+            if ($setting['indexBannerSubtitle'] != '') {
+                $homeSubtitle = $setting['indexBannerSubtitle'];
+            }
+            $homeSubtitleText = trim((string) $homeSubtitle);
+            if ($homeSubtitleText == '' || strpos($homeSubtitleText, 'Your description here') !== false) {
+                $homeSubtitle = '我是馒头助手，这里记录 Typecho、PHP、小程序、服务器运维和 AI 工具等技术内容';
+            }
+        ?>
+        <section class="cm-home-hero" aria-label="站点介绍">
+            <div class="cm-home-hero__main">
+                <span class="cm-home-hero__kicker">技术记录 / 工具分享 / 卡密服务</span>
+                <h1>记录技术折腾，打造自己的实用工具站</h1>
+                <p><?php echo htmlspecialchars($homeSubtitle); ?>。这里记录 Typecho、PHP、小程序、服务器运维、AI 工具等内容，也承载文章内购买和自动发卡。</p>
+                <div class="cm-home-hero__actions">
+                    <a href="#index-list">查看技术文章</a>
+                    <a href="#index-list">进入卡密内容</a>
+                </div>
+            </div>
+            <aside class="cm-home-profile" aria-label="技术栈概览">
+                <span class="cm-home-profile__mark">馒</span>
+                <strong>CloudMantou</strong>
+                <p>个人博客、项目记录、卡密售卖与技术服务聚合站。</p>
+                <div class="cm-home-profile__tags">
+                    <span>Typecho</span>
+                    <span>PHP</span>
+                    <span>小程序</span>
+                    <span>运维</span>
+                    <span>AI 工具</span>
+                    <span>支付系统</span>
+                </div>
+            </aside>
+        </section>
+        <section class="cm-home-focus" aria-label="博客功能">
+            <div class="cm-home-focus__item">
+                <span>卡密商店</span>
+                <strong>文章内自动发卡</strong>
+                <p>售卖软件授权、工具服务、会员卡密和付费资源，支付后自动发卡。</p>
+            </div>
+            <div class="cm-home-focus__item">
+                <span>日常记录</span>
+                <strong>项目和生活时间线</strong>
+                <p>记录工作、生活、项目进展和碎片想法，形成自己的成长时间线。</p>
+            </div>
+            <div class="cm-home-focus__item">
+                <span>技术栈</span>
+                <strong>工作笔记沉淀</strong>
+                <p>记录 Typecho 插件、PHP、小程序、服务器运维、AI 工具等实践经验。</p>
+            </div>
+        </section>
+        <section class="cm-home-section-head" aria-label="最新内容标题">
+            <div>
+                <span>最新内容</span>
+                <h2>文章、卡密商品和工作记录</h2>
+            </div>
+            <p>带价格和库存的文章就是卡密售卖内容，其余文章保留日常记录和技术栈沉淀。</p>
+        </section>
         <section id="index-list" class="float-up">
             <ul id="masonry">
             <?php while($this->next()): ?>

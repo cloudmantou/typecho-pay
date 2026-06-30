@@ -86,6 +86,10 @@ if($this->is('post') || $this->is('page')) {
             if($setting['indexBannerTitle']!='') $title = $setting['indexBannerTitle'];
             $subtitle = Helper::options()->description;
             if($setting['indexBannerSubtitle']!='') $subtitle = $setting['indexBannerSubtitle'];
+            $subtitleText = trim((string) $subtitle);
+            if ($subtitleText == '' || strpos($subtitleText, 'Your description here') !== false) {
+                $subtitle = '技术记录、日常记录与卡密服务';
+            }
         ?>
         <div class="banner-title index<?php if(!empty($banner)) echo ' force-normal'; ?>">
             <h1 class="post-title"><span class="brand"><span><?php echo $title; ?></span></span><br><span class="subtitle"><?php echo $subtitle; ?></span></h1>

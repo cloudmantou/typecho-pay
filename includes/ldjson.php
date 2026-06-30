@@ -69,6 +69,13 @@ $setting = $GLOBALS['VOIDSetting'];
 }
 </script>
 <?php elseif ($this->is('index')): ?>
+<?php
+    $siteDescription = Helper::options()->description;
+    $siteDescriptionText = trim((string) $siteDescription);
+    if ($siteDescriptionText == '' || strpos($siteDescriptionText, 'Your description here') !== false) {
+        $siteDescription = '技术记录、日常记录与卡密服务';
+    }
+?>
 <script type="application/ld+json">
 {
     "@context": "https://schema.org",
@@ -90,7 +97,7 @@ $setting = $GLOBALS['VOIDSetting'];
         "@type": "WebPage",
         "@id": "<?php Utils::index("/"); ?>"
     },
-    "description": "<?php echo Helper::options()->description; ?>"
+    "description": <?php echo json_encode($siteDescription, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES); ?>
 }
 </script>
 <?php elseif ($this->is('archive')): ?>
