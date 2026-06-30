@@ -279,6 +279,46 @@ section#index-list > ul > li {
     border-top: 3px solid rgba(63, 111, 91, 0.22);
 }
 
+section#index-list > ul > li.cm-post {
+    overflow: hidden;
+    transition: border-color 0.18s ease, box-shadow 0.18s ease, transform 0.18s ease;
+}
+
+section#index-list > ul > li.cm-post:hover {
+    border-color: rgba(63, 111, 91, 0.28) !important;
+    transform: translateY(-1px);
+}
+
+section#index-list > ul > li.cm-post--article {
+    background: var(--cm-surface);
+}
+
+section#index-list > ul > li.cm-post--product {
+    border-top-color: rgba(167, 101, 42, 0.5);
+    background: linear-gradient(180deg, rgba(167, 101, 42, 0.09), rgba(167, 101, 42, 0) 112px), var(--cm-surface);
+}
+
+section#index-list > ul > li.cm-post--product:hover {
+    border-color: rgba(167, 101, 42, 0.35) !important;
+}
+
+section#index-list > ul > li.cm-post--product article .title::before {
+    content: "卡密商品";
+    display: inline-flex;
+    align-items: center;
+    min-height: 24px;
+    margin: 0 8px 5px 0;
+    padding: 2px 8px;
+    border: 1px solid rgba(167, 101, 42, 0.28);
+    border-radius: 999px;
+    color: var(--cm-warm);
+    background: rgba(167, 101, 42, 0.1);
+    font-size: 0.76rem;
+    font-weight: 760;
+    line-height: 1.3;
+    vertical-align: middle;
+}
+
 .cm-home-focus {
     display: grid;
     grid-template-columns: repeat(3, minmax(0, 1fr));
@@ -317,6 +357,92 @@ section#index-list > ul > li {
     line-height: 1.6;
 }
 
+.cm-home-products {
+    margin: 2px 0 24px;
+}
+
+.cm-home-products__head {
+    display: flex;
+    align-items: flex-end;
+    justify-content: space-between;
+    gap: 18px;
+    margin-bottom: 14px;
+    padding: 4px 2px 12px;
+    border-bottom: 1px solid var(--cm-line);
+}
+
+.cm-home-products__head span {
+    display: inline-flex;
+    margin-bottom: 8px;
+    color: var(--cm-warm);
+    font-size: 0.82rem;
+    font-weight: 760;
+}
+
+.cm-home-products__head h2 {
+    margin: 0;
+    color: var(--cm-text);
+    font-size: 1.42rem;
+    line-height: 1.3;
+}
+
+.cm-home-products__head > a,
+.cm-home-products__fallback a,
+.cm-read-entry,
+.cm-product-entry {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    min-height: 36px;
+    padding: 8px 13px;
+    border: 1px solid var(--cm-line);
+    border-radius: 8px;
+    background: var(--cm-surface-soft);
+    color: var(--cm-accent-strong);
+    font-size: 0.88rem;
+    font-weight: 720;
+    line-height: 1.35;
+}
+
+.cm-home-products__preview .typechopay-shop {
+    margin: 0;
+}
+
+.cm-home-products__fallback {
+    display: grid;
+    gap: 9px;
+    padding: 20px;
+    border: 1px dashed rgba(167, 101, 42, 0.34);
+    border-radius: 8px;
+    background: rgba(167, 101, 42, 0.07);
+}
+
+.cm-home-products__fallback strong {
+    color: var(--cm-text);
+    font-size: 1.02rem;
+}
+
+.cm-home-products__fallback p {
+    max-width: 680px;
+    margin: 0;
+    color: var(--cm-muted);
+    line-height: 1.7;
+}
+
+.cm-home-products__fallback code {
+    border: 1px solid var(--cm-line);
+    border-radius: 5px;
+    background: var(--cm-surface);
+    color: var(--cm-warm);
+}
+
+.cm-home-products__fallback a {
+    width: fit-content;
+    border-color: rgba(167, 101, 42, 0.32);
+    color: var(--cm-warm);
+    background: rgba(167, 101, 42, 0.1);
+}
+
 .cm-home-section-head {
     display: flex;
     align-items: flex-end;
@@ -344,6 +470,17 @@ section#index-list > ul > li article .post-meta-index {
     flex-wrap: wrap;
     align-items: center;
     gap: 6px;
+}
+
+.cm-post-entry {
+    display: flex;
+    margin-top: 14px;
+}
+
+.cm-product-entry {
+    border-color: rgba(167, 101, 42, 0.34);
+    color: var(--cm-warm);
+    background: rgba(167, 101, 42, 0.1);
 }
 
 section#index-list > ul > li article .title,
@@ -518,6 +655,24 @@ footer {
         grid-template-columns: 1fr;
         gap: 10px;
         margin-bottom: 16px;
+    }
+
+    .cm-home-products {
+        margin-bottom: 18px;
+    }
+
+    .cm-home-products__head {
+        display: block;
+        padding-bottom: 12px;
+    }
+
+    .cm-home-products__head > a {
+        width: fit-content;
+        margin-top: 12px;
+    }
+
+    .cm-home-products__fallback {
+        padding: 16px 18px;
     }
 
     .cm-home-section-head {

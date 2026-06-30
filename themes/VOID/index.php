@@ -48,7 +48,7 @@ if(!Utils::isPjax()){
                 <p><?php echo htmlspecialchars($homeSubtitle); ?>。这里记录 Typecho、PHP、小程序、服务器运维、AI 工具等内容，也承载文章内购买和自动发卡。</p>
                 <div class="cm-home-hero__actions">
                     <a href="#index-list">查看技术文章</a>
-                    <a href="#index-list">进入卡密内容</a>
+                    <a href="#cm-product-zone">进入卡密商店</a>
                 </div>
             </div>
             <aside class="cm-home-profile" aria-label="技术栈概览">
@@ -82,18 +82,64 @@ if(!Utils::isPjax()){
                 <p>记录 Typecho 插件、PHP、小程序、服务器运维、AI 工具等实践经验。</p>
             </div>
         </section>
-        <section class="cm-home-section-head" aria-label="最新内容标题">
-            <div>
-                <span>最新内容</span>
-                <h2>文章、卡密商品和工作记录</h2>
+        <?php
+            $homeShopPreview = '';
+            $hasHomeShopPreview = false;
+            if (Utils::isPluginAvailable('TypechoPay')
+                && class_exists('\\TypechoPlugin\\TypechoPay\\Plugin')
+                && method_exists('\\TypechoPlugin\\TypechoPay\\Plugin', 'renderPayShortcodes')) {
+                try {
+                    $homeShopPreview = \TypechoPlugin\TypechoPay\Plugin::renderPayShortcodes('[typechopay_shop limit="3" columns="3"]', $this);
+                    $hasHomeShopPreview = trim((string) $homeShopPreview) !== ''
+                        && strpos((string) $homeShopPreview, 'typechopay-shop__empty') === false;
+                } catch (\Throwable $e) {
+                    $homeShopPreview = '';
+                }
+            }
+        ?>
+        <section id="cm-product-zone" class="cm-home-products" aria-label="卡密商店">
+            <div class="cm-home-products__head">
+                <div>
+                    <span>卡密商店</span>
+                    <h2>热门卡密与工具服务</h2>
+                </div>
+                <a href="<?php Utils::index('/shop'); ?>">查看全部</a>
             </div>
-            <p>带价格和库存的文章就是卡密售卖内容，其余文章保留日常记录和技术栈沉淀。</p>
+            <?php if ($hasHomeShopPreview): ?>
+                <div class="cm-home-products__preview">
+                    <?php echo $homeShopPreview; ?>
+                </div>
+            <?php else: ?>
+                <div class="cm-home-products__fallback">
+                    <strong>卡密商品独立展示</strong>
+                    <p>商店页使用 <code>[typechopay_shop]</code> 聚合卡密、授权码和付费工具，文章列表继续保留技术记录与日常内容。</p>
+                    <a href="<?php Utils::index('/shop'); ?>">进入卡密商店</a>
+                </div>
+            <?php endif; ?>
+        </section>
+        <section class="cm-home-section-head" aria-label="最新文章标题">
+            <div>
+                <span>最新文章</span>
+                <h2>技术记录、工作笔记、日常更新</h2>
+            </div>
+            <p>这里优先呈现可阅读内容；带价格与库存的商品文章会使用独立商品样式，不再伪装成普通文章。</p>
         </section>
         <section id="index-list" class="float-up">
             <ul id="masonry">
             <?php while($this->next()): ?>
                 <?php $bannerAsCover = $this->fields->bannerascover; if($this->fields->banner == '') $bannerAsCover='0'; ?>
-                <li id="p-<?php $this->cid(); ?>" class="masonry-item style-<?php 
+                <?php
+                    $payBadge = '';
+                    if (Utils::isPluginAvailable('TypechoPay') && class_exists('\\TypechoPlugin\\TypechoPay\\Plugin')) {
+                        try {
+                            $payBadge = \TypechoPlugin\TypechoPay\Plugin::renderPostBadge($this);
+                        } catch (\Throwable $e) {
+                            $payBadge = '';
+                        }
+                    }
+                    $isProductPost = trim((string) $payBadge) !== '';
+                ?>
+                <li id="p-<?php $this->cid(); ?>" class="masonry-item cm-post <?php echo $isProductPost ? 'cm-post--product' : 'cm-post--article'; ?> style-<?php
                         if($this->fields->showfullcontent=='1') {
                             if($bannerAsCover == '2')
                                 echo '1';
@@ -135,8 +181,8 @@ if(!Utils::isPjax()){
                                     <?php if($setting['VOIDPlugin']): ?>
                                         <span class="word-count">+ <?php echo $this->wordCount; ?> 字</span>
                                     <?php endif; ?>
-                                    <?php if (Utils::isPluginAvailable('TypechoPay') && class_exists('\\TypechoPlugin\\TypechoPay\\Plugin')): ?>
-                                        <?php echo \TypechoPlugin\TypechoPay\Plugin::renderPostBadge($this); ?>
+                                    <?php if ($payBadge !== ''): ?>
+                                        <?php echo $payBadge; ?>
                                     <?php endif; ?>
                                 </div>
 
@@ -159,6 +205,12 @@ if(!Utils::isPjax()){
                                     <?php $this->content(); ?>
                                 <?php endif; ?>
                                 </div>
+
+                                <?php if($this->fields->showfullcontent != '1'): ?>
+                                    <div class="cm-post-entry" aria-hidden="true">
+                                        <span class="<?php echo $isProductPost ? 'cm-product-entry' : 'cm-read-entry'; ?>"><?php echo $isProductPost ? '查看商品详情' : '阅读全文'; ?></span>
+                                    </div>
+                                <?php endif; ?>
 
                             </div>
                         </article>
